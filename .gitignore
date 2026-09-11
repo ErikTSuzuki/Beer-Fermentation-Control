@@ -1,0 +1,66 @@
+# Compilação ESP-IDF / CMake
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+compile_commands.json
+flasher_args.json
+*.o
+*.a
+*.out
+*.exe
+*.bin
+*.elf
+*.map
+
+# Configurações geradas pelo ESP-IDF
+sdkconfig
+sdkconfig.old
+
+# Dependências e ferramentas locais
+managed_components/
+components/.idf/
+.espressif/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Cache de ferramentas
+.cache/
+.ccls-cache/
+
+# Configurações locais do editor
+.vscode/settings.json
+.vscode/c_cpp_properties.json
+*.user
+*.suo
+*.sln.docstates
+
+# Segredos locais
+.env
+.env.*
+!.env.example
+
+# Temporários e logs
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+
+# Sistema operacional
+.DS_Store
+.AppleDouble
+.LSOverride
+.directory
+Thumbs.db
+ehthumbs.db
+Desktop.ini
