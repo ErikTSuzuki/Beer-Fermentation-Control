@@ -50,7 +50,8 @@ static void onReceive(const esp_now_recv_info_t *info,
 
     // Não é ISR. Não espera se a fila estiver cheia.
     // Sem ACK, o transmissor poderá repetir a leitura.
-    xQueueSend(rxQueue, &item, 0); // Teste
+    xQueueSend(rxQueue, &item, 0); 
+    
 }
 
 static bool validReading(const BrewTelemetry &p) {
