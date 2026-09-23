@@ -8,6 +8,7 @@
 #include "IspindelReceiver.h"
 #include "LocalTemperature.h"
 #include "WifiStation.h"
+#include "DisplayTest.h"
 
 static const char *TAG = "ISPINDEL";
 
@@ -27,6 +28,7 @@ extern "C" void app_main(void) {
 
     ispindel_receiver::start();
     local_temperature::start();
+    display_test::start();
 
     ESP_LOGI(TAG, "Receptor pronto no canal %u", BREW_CHANNEL);
 }

@@ -5,6 +5,8 @@ idf_component_register(
         "IspindelReceiver.cpp"
         "LocalTemperature.cpp"
         "TelemetryLogger.cpp"
+        "Mar2406Display.cpp"
+        "DisplayTest.cpp"
     INCLUDE_DIRS "."
-    REQUIRES esp_wifi esp_event esp_netif nvs_flash onewire_bus ds18b20
+    REQUIRES esp_wifi esp_event esp_netif nvs_flash onewire_bus ds18b20 esp_driver_gpio esp_rom
 )
