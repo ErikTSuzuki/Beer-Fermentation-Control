@@ -21,16 +21,20 @@ shield, e nao os numeros de pino do Arduino.
 | LCD_D7 | GPIO25 |
 | LCD_WR | GPIO26 |
 | LCD_RS | GPIO27 |
-| LCD_CS | GPIO32 |
+| LCD_CS | GPIO15 |
 | LCD_RST | GPIO33 |
 | LCD_RD | 3V3 (mantido alto; somente escrita) |
 | GND | GND comum |
 | 5V | Alimentacao de 5 V |
-| 3V3 da tela | Sem conexao, conforme manual do modulo |
+| 3V3 da tela | 3V3 do ESP32 |
 
-O GPIO4 continua reservado ao DS18B20. Os sinais do ESP32 usam 3,3 V;
-os 5 V sao somente para a alimentacao indicada da tela. Deixe os pinos SD
-sem conexao. Confira os rotulos da sua placa antes de ligar.
+O GPIO4 continua reservado ao DS18B20. O manual da MAR2406 mostra os
+pinos 5V e 3V3 ligados nas tabelas de conexao. Os sinais do ESP32 usam
+3,3 V; ligue 5V da tela somente ao 5V da placa, nunca a um GPIO.
+Deixe os pinos SD sem conexao. Confira os rotulos da sua placa antes de ligar.
+GPIO15 e um pino de strapping do ESP32. LCD_CS deve permanecer alto durante
+o boot; se o modulo o mantiver baixo, as mensagens iniciais de boot podem
+desaparecer da serial.
 
 ## Executar
 
