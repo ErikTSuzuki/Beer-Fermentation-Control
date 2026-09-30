@@ -29,6 +29,7 @@ struct RxItem {
 };
 
 static QueueHandle_t rxQueue = nullptr;
+static QueueHandle_t latestQueue = nullptr;
 
 // Executado pela tarefa Wi-Fi: apenas copia e enfileira.
 static void onReceive(const esp_now_recv_info_t *info,
@@ -117,7 +118,7 @@ static void receiverTask(void *) {
                           pdMS_TO_TICKS(1000)) != pdTRUE) {
             if (!absenceReported &&
                 xTaskGetTickCount() - lastValid >
-                    pdMS_TO_TICKS(35000)) {
+                    pdMS_TO_TICKS(ispindel_receiver::STALE_AFTER_MS)) {
                 ESP_LOGW(TAG, "Sem telemetria valida ha 35 segundos");
                 absenceReported = true;
             }
@@ -158,6 +159,8 @@ static void receiverTask(void *) {
 
         lastValid = xTaskGetTickCount();
         absenceReported = false;
+        const ispindel_receiver::Reading reading = {p, lastValid};
+        xQueueOverwrite(latestQueue, &reading);
 
         if (duplicate) {
             ESP_LOGI(TAG, "Retransmissao: ACK reenviado");
@@ -178,7 +181,12 @@ namespace ispindel_receiver {
 
 bool createQueue() {
     rxQueue = xQueueCreate(8, sizeof(RxItem));
-    return rxQueue != nullptr;
+    latestQueue = xQueueCreate(1, sizeof(Reading));
+    return rxQueue != nullptr && latestQueue != nullptr;
+}
+
+bool latest(Reading &reading) {
+    return latestQueue && xQueuePeek(latestQueue, &reading, 0) == pdTRUE;
 }
 
 void start() {
