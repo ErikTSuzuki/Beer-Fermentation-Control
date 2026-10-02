@@ -9,6 +9,7 @@
 #include "LocalTemperature.h"
 #include "WifiStation.h"
 #include "DisplayTest.h"
+#include "RtcClock.h"
 
 static const char *TAG = "ISPINDEL";
 
@@ -26,6 +27,7 @@ extern "C" void app_main(void) {
         std::abort();
     }
 
+    rtc_clock::start();
     ispindel_receiver::start();
     local_temperature::start();
     display_test::start();
