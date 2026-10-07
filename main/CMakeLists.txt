@@ -8,6 +8,7 @@ idf_component_register(
         "Mar2406Display.cpp"
         "DisplayTest.cpp"
         "RtcClock.cpp"
+        "RelayTest.cpp"
     INCLUDE_DIRS "."
     REQUIRES esp_wifi esp_event esp_netif nvs_flash onewire_bus ds18b20 esp_driver_gpio esp_driver_i2c esp_rom
 )

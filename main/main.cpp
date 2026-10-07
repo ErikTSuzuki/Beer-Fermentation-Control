@@ -10,10 +10,12 @@
 #include "WifiStation.h"
 #include "DisplayTest.h"
 #include "RtcClock.h"
+#include "RelayTest.h"
 
 static const char *TAG = "ISPINDEL";
 
 extern "C" void app_main(void) {
+    relay_test::start();
     // Nao apaga automaticamente configuracoes existentes.
     ESP_ERROR_CHECK(nvs_flash_init());
 

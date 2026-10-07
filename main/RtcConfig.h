@@ -4,7 +4,7 @@
 
 namespace rtc_config {
 
-// GPIO21/22 ja pertencem a TFT. GPIO32/33 ficam livres para futuros reles.
+// GPIO21/22 pertencem a TFT. GPIO32/33 pertencem aos reles.
 // GPIO5/15 sao strapping: SDA e SCL precisam de pull-ups para 3V3.
 constexpr gpio_num_t SDA = GPIO_NUM_5;
 constexpr gpio_num_t SCL = GPIO_NUM_15;
