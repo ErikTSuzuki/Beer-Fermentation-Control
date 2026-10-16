@@ -1,13 +1,13 @@
-#pragma once
+#ifndef RTC_CLOCK_H
+#define RTC_CLOCK_H
 
-#include <cstddef>
-
-namespace rtc_clock {
+#include <stdbool.h>
+#include <stddef.h>
 
 // DS3232M. Inicializar uma vez antes das tarefas que consultam o horario.
-void start();
+void rtc_clock_start(void);
 // Copia o horario local do RTC (AAAA-MM-DD HH:MM:SS), sem acessar I2C.
 // Retorna false e escreve "RTC INDISPONIVEL" se a leitura nao for confiavel.
-bool timestamp(char *buffer, size_t size);
+bool rtc_clock_timestamp(char *buffer, size_t size);
 
-} // namespace rtc_clock
+#endif

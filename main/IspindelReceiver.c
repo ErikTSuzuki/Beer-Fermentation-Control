@@ -2,9 +2,9 @@
 #include "TelemetryLogger.h"
 #include "BrewProtocol.h"
 
-#include <cmath>
-#include <cstring>
-#include <cstdlib>
+#include <math.h>
+#include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -20,30 +20,28 @@
 
 static const char *TAG = "ISPINDEL";
 
-namespace {
-
-struct RxItem {
+typedef struct {
     uint8_t mac[6];
     int rssi;
     BrewTelemetry packet;
-};
+} RxItem;
 
-static QueueHandle_t rxQueue = nullptr;
-static QueueHandle_t latestQueue = nullptr;
+static QueueHandle_t rxQueue = NULL;
+static QueueHandle_t latestQueue = NULL;
 
 // Executado pela tarefa Wi-Fi: apenas copia e enfileira.
 static void onReceive(const esp_now_recv_info_t *info,
                       const uint8_t *data,
                       int length) {
     if (!info || !data ||
-        length != static_cast<int>(sizeof(BrewTelemetry))) {
+        length != (int)(sizeof(BrewTelemetry))) {
         return;
     }
 
-    RxItem item = {};
+    RxItem item = {0};
 
-    std::memcpy(item.mac, info->src_addr, sizeof(item.mac));
-    std::memcpy(&item.packet, data, sizeof(item.packet));
+    memcpy(item.mac, info->src_addr, sizeof(item.mac));
+    memcpy(&item.packet, data, sizeof(item.packet));
 
     item.rssi = info->rx_ctrl ? info->rx_ctrl->rssi : -127;
 
@@ -52,32 +50,32 @@ static void onReceive(const esp_now_recv_info_t *info,
     xQueueSend(rxQueue, &item, 0);
 }
 
-static bool validReading(const BrewTelemetry &p) {
-    if (!brewHeaderValid(p.header, BREW_TELEMETRY)) {
+static bool validReading(const BrewTelemetry *p) {
+    if (!brew_header_valid(&p->header, BREW_TELEMETRY)) {
         return false;
     }
 
-    if (!std::isfinite(p.temperatureC) ||
-        !std::isfinite(p.tiltDegrees) ||
-        !std::isfinite(p.gravity) ||
-        !std::isfinite(p.batteryV)) {
+    if (!isfinite(p->temperatureC) ||
+        !isfinite(p->tiltDegrees) ||
+        !isfinite(p->gravity) ||
+        !isfinite(p->batteryV)) {
         return false;
     }
 
-    return p.temperatureC >= -55.0f &&
-           p.temperatureC <= 125.0f &&
-           p.temperatureC != 85.0f &&
-           p.tiltDegrees >= 0.0f &&
-           p.tiltDegrees <= 90.5f &&
-           p.batteryV > 0.0f &&
-           p.batteryV <= 6.0f;
+    return p->temperatureC >= -55.0f &&
+           p->temperatureC <= 125.0f &&
+           p->temperatureC != 85.0f &&
+           p->tiltDegrees >= 0.0f &&
+           p->tiltDegrees <= 90.5f &&
+           p->batteryV > 0.0f &&
+           p->batteryV <= 6.0f;
 }
 
-static esp_err_t acknowledge(const RxItem &item) {
-    if (!esp_now_is_peer_exist(item.mac)) {
-        esp_now_peer_info_t peer = {};
+static esp_err_t acknowledge(const RxItem *item) {
+    if (!esp_now_is_peer_exist(item->mac)) {
+        esp_now_peer_info_t peer = {0};
 
-        std::memcpy(peer.peer_addr, item.mac, sizeof(peer.peer_addr));
+        memcpy(peer.peer_addr, item->mac, sizeof(peer.peer_addr));
         peer.channel = BREW_CHANNEL;
         peer.ifidx = WIFI_IF_STA;
         peer.encrypt = false;
@@ -89,25 +87,26 @@ static esp_err_t acknowledge(const RxItem &item) {
         }
     }
 
-    BrewAck ack = item.packet.header;
+    BrewAck ack = item->packet.header;
     ack.type = BREW_ACK;
 
     return esp_now_send(
-        item.mac,
-        reinterpret_cast<const uint8_t *>(&ack),
+        item->mac,
+        (const uint8_t *)&ack,
         sizeof(ack)
     );
 }
 
-static void receiverTask(void *) {
-    RxItem item = {};
+static void receiverTask(void *context) {
+    (void)context;
+    RxItem item = {0};
 
     // Seleciona o primeiro sensor válido até reiniciar.
     bool selected = false;
-    uint8_t sensorMac[6] = {};
+    uint8_t sensorMac[6] = {0};
 
     bool havePrevious = false;
-    BrewHeader previous = {};
+    BrewHeader previous = {0};
 
     uint32_t count = 0;
     TickType_t lastValid = xTaskGetTickCount();
@@ -118,7 +117,7 @@ static void receiverTask(void *) {
                           pdMS_TO_TICKS(1000)) != pdTRUE) {
             if (!absenceReported &&
                 xTaskGetTickCount() - lastValid >
-                    pdMS_TO_TICKS(ispindel_receiver::STALE_AFTER_MS)) {
+                    pdMS_TO_TICKS(ISPINDEL_STALE_AFTER_MS)) {
                 ESP_LOGW(TAG, "Sem telemetria valida ha 35 segundos");
                 absenceReported = true;
             }
@@ -126,31 +125,31 @@ static void receiverTask(void *) {
             continue;
         }
 
-        if (!validReading(item.packet)) {
+        if (!validReading(&item.packet)) {
             ESP_LOGW(TAG, "Pacote rejeitado na validacao");
             continue;
         }
 
         if (selected &&
-            std::memcmp(sensorMac, item.mac, sizeof(sensorMac)) != 0) {
+            memcmp(sensorMac, item.mac, sizeof(sensorMac)) != 0) {
             continue;
         }
 
         if (!selected) {
-            std::memcpy(sensorMac, item.mac, sizeof(sensorMac));
+            memcpy(sensorMac, item.mac, sizeof(sensorMac));
             selected = true;
         }
 
-        const BrewTelemetry &p = item.packet;
+        const BrewTelemetry *p = &item.packet;
 
         bool duplicate =
             havePrevious &&
-            previous.sensorId == p.header.sensorId &&
-            previous.bootId == p.header.bootId &&
-            previous.sequence == p.header.sequence;
+            previous.sensorId == p->header.sensorId &&
+            previous.bootId == p->header.bootId &&
+            previous.sequence == p->header.sequence;
 
         // Confirma também retransmissões, caso o ACK anterior se perca.
-        esp_err_t result = acknowledge(item);
+        esp_err_t result = acknowledge(&item);
 
         if (result != ESP_OK) {
             ESP_LOGW(TAG, "Erro ao enfileirar ACK: %s",
@@ -159,7 +158,7 @@ static void receiverTask(void *) {
 
         lastValid = xTaskGetTickCount();
         absenceReported = false;
-        const ispindel_receiver::Reading reading = {p, lastValid};
+        const IspindelReading reading = {*p, lastValid};
         xQueueOverwrite(latestQueue, &reading);
 
         if (duplicate) {
@@ -167,39 +166,33 @@ static void receiverTask(void *) {
             continue;
         }
 
-        previous = p.header;
+        previous = p->header;
         havePrevious = true;
         ++count;
 
-        telemetry_logger::printReading(p, item.mac, item.rssi, count);
+        telemetry_logger_print_reading(p, item.mac, item.rssi, count);
     }
 }
 
-} // namespace
-
-namespace ispindel_receiver {
-
-bool createQueue() {
+bool ispindel_receiver_create_queue(void) {
     rxQueue = xQueueCreate(8, sizeof(RxItem));
-    latestQueue = xQueueCreate(1, sizeof(Reading));
-    return rxQueue != nullptr && latestQueue != nullptr;
+    latestQueue = xQueueCreate(1, sizeof(IspindelReading));
+    return rxQueue != NULL && latestQueue != NULL;
 }
 
-bool latest(Reading &reading) {
-    return latestQueue && xQueuePeek(latestQueue, &reading, 0) == pdTRUE;
+bool ispindel_receiver_latest(IspindelReading *reading) {
+    return reading && latestQueue && xQueuePeek(latestQueue, reading, 0) == pdTRUE;
 }
 
-void start() {
+void ispindel_receiver_start(void) {
     ESP_ERROR_CHECK(esp_now_init());
 
     if (xTaskCreate(receiverTask, "ispindel_rx",
-                    4096, nullptr, 4, nullptr) != pdPASS) {
+                    4096, NULL, 4, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Falha ao criar tarefa");
-        std::abort();
+        abort();
     }
 
     ESP_ERROR_CHECK(esp_now_register_recv_cb(onReceive));
 
 }
-
-} // namespace ispindel_receiver

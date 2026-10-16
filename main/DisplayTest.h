@@ -1,8 +1,7 @@
-#pragma once
-
-namespace display_test {
+#ifndef DISPLAY_TEST_H
+#define DISPLAY_TEST_H
 
 // Chamar uma vez, depois das filas. Mostra as leituras reais dos sensores.
-void start();
+void display_test_start(void);
 
-} // namespace display_test
+#endif

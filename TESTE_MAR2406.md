@@ -35,7 +35,7 @@ Deixe os pinos SD sem conexao. Confira os rotulos da sua placa antes de ligar.
 
 ## Executar
 
-1. Confira a pinagem em `main/Mar2406Config.h` e mantenha `TEST_ENABLED = true`.
+1. Confira a pinagem em `main/Mar2406Config.h` e mantenha `MAR2406_TEST_ENABLED` definido como `true`.
 2. No terminal ESP-IDF, compile com `idf.py build`.
 3. Com o ESP32 conectado, grave usando `idf.py -p COMx flash monitor`,
    substituindo `COMx` pela porta correta.
@@ -57,16 +57,24 @@ O log de inicializacao nao confirma funcionamento fisico: o LCD nao e lido.
 ## Organizacao
 
 - `Mar2406Config.h`: pinagem e habilitacao do teste.
-- `Mar2406Display.h/.cpp`: inicializacao ILI9341, escrita paralela e fonte local.
-- `DisplayTest.h/.cpp`: tarefa de monitoramento real com prioridade 1.
-- `IspindelReceiver.h/.cpp`: disponibiliza copia da ultima telemetria validada
+- `Mar2406Display.h/.c`: inicializacao ILI9341, escrita paralela e fonte local.
+- `DisplayTest.h/.c`: tarefa de monitoramento real com prioridade 1.
+- `IspindelReceiver.h/.c`: disponibiliza copia da ultima telemetria validada
   em uma fila separada, sem consumir a fila de recepcao nem desenhar no ACK.
-- `main.cpp`: apenas include e chamada `display_test::start()` adicionados.
+- `main.c`: inicializacao dos modulos e chamada `display_test_start()`.
 - `main/CMakeLists.txt`: registro dos fontes e dependencias locais do ESP-IDF.
 
-Para desabilitar, altere `TEST_ENABLED` para `false` e recompile; a tarefa
+Para desabilitar, altere `MAR2406_TEST_ENABLED` para `false` e recompile; a tarefa
 nao sera criada e os GPIOs da tela nao serao configurados pelo teste.
 O driver usa pausas entre caracteres/linhas e nao desabilita interrupcoes.
 A fonte atende letras sem acentos, numeros, espaco, ponto, dois-pontos e hifen.
 
 Referencia: https://www.lcdwiki.com/2.4inch_Arduino_Display
+
+## Linguagem
+
+Todos os fontes da aplicacao em `main/` sao C (C11 ou superior). As interfaces
+usam funcoes com prefixos por modulo, estruturas e ponteiros. Os pacotes mantem
+o mesmo formato binario: cabecalho/ACK de 20 bytes e telemetria de 36 bytes,
+verificados durante a compilacao. As bibliotecas DS18B20 e OneWire tambem usam C.
+O ESP-IDF inclui suporte interno a C++ no SDK, mesmo em aplicacoes escritas em C.

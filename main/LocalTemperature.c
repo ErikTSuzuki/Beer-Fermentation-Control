@@ -1,8 +1,9 @@
 #include "LocalTemperature.h"
 #include "RtcClock.h"
 
-#include <cmath>
-#include <cstdint>
+#include <math.h>
+#include <stdint.h>
+#include <string.h>
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_err.h"
@@ -10,27 +11,27 @@
 #include "onewire_bus.h"
 #include "ds18b20.h"
 
-namespace {
-
 // DS18B20 alimentado por 3,3 V: DQ no GPIO4 e pull-up externo de 4,7 kohm.
-static constexpr int DS18B20_GPIO = 4;
-static constexpr uint32_t LOCAL_SAMPLE_PERIOD_MS = 2000;
+static const int DS18B20_GPIO = 4;
+static const uint32_t LOCAL_SAMPLE_PERIOD_MS = 2000;
 static const char *LOCAL_TAG = "DS18B20_LOCAL";
 
 // Caixa postal com a amostra mais recente; acesso seguro entre as tarefas.
-static QueueHandle_t localTemperatureQueue = nullptr;
+static QueueHandle_t localTemperatureQueue = NULL;
 
 static esp_err_t findLocalSensor(onewire_bus_handle_t bus,
                                  ds18b20_device_handle_t *sensor) {
-    onewire_device_iter_handle_t iter = nullptr;
+    onewire_device_iter_handle_t iter = NULL;
     esp_err_t result = onewire_new_device_iter(bus, &iter);
     if (result != ESP_OK) {
         return result;
     }
 
-    onewire_device_t device = {};
+    onewire_device_t device = {0};
     while ((result = onewire_device_iter_get_next(iter, &device)) == ESP_OK) {
-        ds18b20_config_t config = {};
+        ds18b20_config_t config;
+        // Esta versao da biblioteca usa uma estrutura de configuracao vazia.
+        memset(&config, 0, sizeof(config));
         result = ds18b20_new_device_from_enumeration(&device, &config, sensor);
         if (result != ESP_ERR_NOT_SUPPORTED) {
             break;
@@ -40,25 +41,26 @@ static esp_err_t findLocalSensor(onewire_bus_handle_t bus,
     return result;
 }
 
-static void localTemperatureTask(void *) {
-    onewire_bus_handle_t bus = nullptr;
-    onewire_bus_config_t busConfig = {};
+static void localTemperatureTask(void *context) {
+    (void)context;
+    onewire_bus_handle_t bus = NULL;
+    onewire_bus_config_t busConfig = {0};
     busConfig.bus_gpio_num = DS18B20_GPIO;
-    onewire_bus_rmt_config_t rmtConfig = {};
+    onewire_bus_rmt_config_t rmtConfig = {0};
     rmtConfig.max_rx_bytes = 10;
 
     esp_err_t result = onewire_new_bus_rmt(&busConfig, &rmtConfig, &bus);
     if (result != ESP_OK) {
         ESP_LOGE(LOCAL_TAG, "Falha ao iniciar GPIO%d: %s",
                  DS18B20_GPIO, esp_err_to_name(result));
-        vTaskDelete(nullptr);
+        vTaskDelete(NULL);
         return;
     }
 
-    ds18b20_device_handle_t sensor = nullptr;
+    ds18b20_device_handle_t sensor = NULL;
     TickType_t lastWake = xTaskGetTickCount();
     for (;;) {
-        LocalTemperature sample = {};
+        LocalTemperature sample = {0};
         result = ESP_OK;
         if (!sensor) {
             result = findLocalSensor(bus, &sensor);
@@ -74,7 +76,7 @@ static void localTemperatureTask(void *) {
             result = ds18b20_get_temperature(sensor, &sample.temperatureC);
         }
         if (result == ESP_OK &&
-            (!std::isfinite(sample.temperatureC) ||
+            (!isfinite(sample.temperatureC) ||
              sample.temperatureC < -55.0f || sample.temperatureC > 125.0f ||
              sample.temperatureC == 85.0f)) {
             // 85 C e o valor de inicializacao; inadequado para esta comparacao.
@@ -85,41 +87,35 @@ static void localTemperatureTask(void *) {
         sample.sampledAt = xTaskGetTickCount();
         xQueueOverwrite(localTemperatureQueue, &sample);
         char timestamp[32];
-        rtc_clock::timestamp(timestamp, sizeof(timestamp));
+        rtc_clock_timestamp(timestamp, sizeof(timestamp));
         if (sample.valid) {
             ESP_LOGI(LOCAL_TAG, "%s | GPIO%d | Temperatura=%.2f C",
-                     timestamp, DS18B20_GPIO, static_cast<double>(sample.temperatureC));
+                     timestamp, DS18B20_GPIO, (double)(sample.temperatureC));
         } else {
             ESP_LOGW(LOCAL_TAG, "%s | Sensor indisponivel no GPIO%d: %s; tentando novamente",
                      timestamp, DS18B20_GPIO, esp_err_to_name(result));
             if (sensor) {
                 ds18b20_del_device(sensor);
-                sensor = nullptr;
+                sensor = NULL;
             }
         }
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(LOCAL_SAMPLE_PERIOD_MS));
     }
 }
 
-} // namespace
-
-namespace local_temperature {
-
-bool createQueue() {
+bool local_temperature_create_queue(void) {
     localTemperatureQueue = xQueueCreate(1, sizeof(LocalTemperature));
-    return localTemperatureQueue != nullptr;
+    return localTemperatureQueue != NULL;
 }
 
-bool latest(LocalTemperature &sample) {
-    return xQueuePeek(localTemperatureQueue, &sample, 0) == pdTRUE;
+bool local_temperature_latest(LocalTemperature *sample) {
+    return sample && localTemperatureQueue && xQueuePeek(localTemperatureQueue, sample, 0) == pdTRUE;
 }
 
-void start() {
+void local_temperature_start(void) {
     if (xTaskCreate(localTemperatureTask, "ds18b20_local",
-                    4096, nullptr, 3, nullptr) != pdPASS) {
+                    4096, NULL, 3, NULL) != pdPASS) {
         ESP_LOGE(LOCAL_TAG, "Falha ao criar tarefa; sensor local indisponivel");
     }
 
 }
-
-} // namespace local_temperature

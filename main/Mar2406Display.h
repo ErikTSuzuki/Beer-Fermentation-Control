@@ -1,17 +1,16 @@
-#pragma once
+#ifndef MAR2406_DISPLAY_H
+#define MAR2406_DISPLAY_H
 
-#include <cstdint>
+#include <stdint.h>
 #include "esp_err.h"
 
-namespace mar2406_display {
-
-constexpr int WIDTH = 320;
-constexpr int HEIGHT = 240;
+#define MAR2406_WIDTH 320
+#define MAR2406_HEIGHT 240
 
 // Uso exclusivo por uma tarefa. Tela ILI9341, barramento paralelo de 8 bits.
-esp_err_t initialize();
-void fill(uint16_t color);
-void text(int x, int y, const char *value, uint16_t color,
-          uint16_t background = 0x0000, int scale = 2);
+esp_err_t mar2406_display_initialize(void);
+void mar2406_display_fill(uint16_t color);
+void mar2406_display_text(int x, int y, const char *value, uint16_t color,
+                          uint16_t background, int scale);
 
-} // namespace mar2406_display
+#endif

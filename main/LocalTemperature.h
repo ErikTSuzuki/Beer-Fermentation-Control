@@ -1,19 +1,19 @@
-#pragma once
+#ifndef LOCAL_TEMPERATURE_H
+#define LOCAL_TEMPERATURE_H
 
+#include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 
-struct LocalTemperature {
+typedef struct {
     float temperatureC;
     TickType_t sampledAt;
     bool valid;
-};
-
-namespace local_temperature {
+} LocalTemperature;
 
 // Inicializar uma vez, antes de iniciar as tarefas.
-bool createQueue();
-void start();
+bool local_temperature_create_queue(void);
+void local_temperature_start(void);
 // Copia a ultima amostra sem esperar; false enquanto nao houver amostra.
-bool latest(LocalTemperature &sample);
+bool local_temperature_latest(LocalTemperature *sample);
 
-} // namespace local_temperature
+#endif
