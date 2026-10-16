@@ -3,6 +3,7 @@
 #include "Mar2406Display.h"
 #include "IspindelReceiver.h"
 #include "LocalTemperature.h"
+#include "RtcClock.h"
 
 #include <cstdio>
 #include <cstring>
@@ -51,9 +52,10 @@ void displayTask(void *) {
     using mar2406_display::text;
     mar2406_display::fill(0x0000);
     text(16, 12, "BEER MONITOR", 0x07FF);
-    text(16, 42, "DS18B20 LOCAL", 0xFFE0);
-    text(16, 94, "ISPINDEL", 0xFFE0);
-    Line local{64};
+    Line clock{36};
+    text(16, 60, "DS18B20 LOCAL", 0xFFE0);
+    text(16, 100, "ISPINDEL", 0xFFE0);
+    Line local{80};
     Line remoteStatus{116};
     Line remoteTemp{140};
     Line gravity{164};
@@ -63,6 +65,8 @@ void displayTask(void *) {
 
     for (;;) {
         char line[64];
+        const bool clockOk = rtc_clock::timestamp(line, sizeof(line));
+        clock.show(line, clockOk ? WHITE : RED);
         LocalTemperature sample = {};
         const bool haveLocal = local_temperature::latest(sample);
         const bool localOk = haveLocal && sample.valid &&

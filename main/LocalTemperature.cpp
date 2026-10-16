@@ -1,4 +1,5 @@
 #include "LocalTemperature.h"
+#include "RtcClock.h"
 
 #include <cmath>
 #include <cstdint>
@@ -83,12 +84,14 @@ static void localTemperatureTask(void *) {
         sample.valid = result == ESP_OK;
         sample.sampledAt = xTaskGetTickCount();
         xQueueOverwrite(localTemperatureQueue, &sample);
+        char timestamp[32];
+        rtc_clock::timestamp(timestamp, sizeof(timestamp));
         if (sample.valid) {
-            ESP_LOGI(LOCAL_TAG, "GPIO%d | Temperatura=%.2f C",
-                     DS18B20_GPIO, static_cast<double>(sample.temperatureC));
+            ESP_LOGI(LOCAL_TAG, "%s | GPIO%d | Temperatura=%.2f C",
+                     timestamp, DS18B20_GPIO, static_cast<double>(sample.temperatureC));
         } else {
-            ESP_LOGW(LOCAL_TAG, "Sensor indisponivel no GPIO%d: %s; tentando novamente",
-                     DS18B20_GPIO, esp_err_to_name(result));
+            ESP_LOGW(LOCAL_TAG, "%s | Sensor indisponivel no GPIO%d: %s; tentando novamente",
+                     timestamp, DS18B20_GPIO, esp_err_to_name(result));
             if (sensor) {
                 ds18b20_del_device(sensor);
                 sensor = nullptr;
