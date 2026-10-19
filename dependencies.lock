@@ -23,7 +23,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 6.1.0
+    version: 6.0.0
 direct_dependencies:
 - espressif/ds18b20
 - espressif/onewire_bus

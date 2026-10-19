@@ -1,9 +1,9 @@
-#pragma once
+#ifndef TELEMETRY_LOGGER_H
+#define TELEMETRY_LOGGER_H
 
 #include "BrewProtocol.h"
 
-namespace telemetry_logger {
+void telemetry_logger_print_reading(const BrewTelemetry *packet,
+                                    const uint8_t *mac, int rssi, uint32_t count);
 
-void printReading(const BrewTelemetry &p, const uint8_t *mac, int rssi, uint32_t count);
-
-} // namespace telemetry_logger
+#endif

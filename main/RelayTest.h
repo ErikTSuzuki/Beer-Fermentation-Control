@@ -1,6 +1,7 @@
-#pragma once
+#ifndef RELAY_TEST_H
+#define RELAY_TEST_H
 
-namespace relay_test {
 // Inicializa ambos desligados e, se habilitado, inicia o teste de bancada.
-void start();
-} // namespace relay_test
+void relay_test_start(void);
+
+#endif

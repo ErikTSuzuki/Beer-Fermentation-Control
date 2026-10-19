@@ -1,21 +1,20 @@
-#pragma once
+#ifndef ISPINDEL_RECEIVER_H
+#define ISPINDEL_RECEIVER_H
 
 #include "BrewProtocol.h"
 #include "freertos/FreeRTOS.h"
 
-namespace ispindel_receiver {
+#define ISPINDEL_STALE_AFTER_MS UINT32_C(35000)
 
-constexpr uint32_t STALE_AFTER_MS = 35000;
-
-struct Reading {
+typedef struct {
     BrewTelemetry packet;
     TickType_t receivedAt;
-};
+} IspindelReading;
 
 // Inicializar uma vez; start requer Wi-Fi e filas ja inicializados.
-bool createQueue();
-void start();
+bool ispindel_receiver_create_queue(void);
+void ispindel_receiver_start(void);
 // Copia segura da ultima leitura validada, sem consumir a fila de recepcao.
-bool latest(Reading &reading);
+bool ispindel_receiver_latest(IspindelReading *reading);
 
-} // namespace ispindel_receiver
+#endif
