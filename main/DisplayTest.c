@@ -79,7 +79,7 @@ static void displayTask(void *context) {
         IspindelReading reading = {0};
         const bool haveRemote = ispindel_receiver_latest(&reading);
         const bool remoteOk = haveRemote && xTaskGetTickCount() - reading.receivedAt <=
-            pdMS_TO_TICKS(ISPINDEL_STALE_AFTER_MS);
+            ISPINDEL_STALE_AFTER_TICKS;
         if (remoteOk) {
             const BrewTelemetry *p = &reading.packet;
             showLine(&remoteStatus, "STATUS: RECEBENDO", 0x07E0);

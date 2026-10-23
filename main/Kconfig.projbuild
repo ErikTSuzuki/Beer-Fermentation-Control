@@ -1,0 +1,105 @@
+menu "Beer Monitor - Wi-Fi and iSpindel"
+
+    config BEER_AP_SSID
+        string "Local Wi-Fi SSID for iSpindel"
+        default "BeerMonitor"
+
+    config BEER_AP_PASSWORD
+        string "Local Wi-Fi password (8-63 characters)"
+        default "beer-monitor"
+        help
+            WPA2 password used only by the iSpindel link. Configure the same
+            SSID/password in the iSpindel portal. Change the example password.
+
+    config BEER_AP_IP
+        string "Local AP IPv4 address (/24 subnet)"
+        default "192.168.50.1"
+        help
+            Choose a subnet different from the external router subnet.
+            The iSpindel obtains its IP and the receiver address via DHCP.
+
+    config BEER_ISPINDEL_STALE_SECONDS
+        int "Maximum age of an iSpindel reading (seconds)"
+        range 35 86400
+        default 1800
+        help
+            Used by the display and cloud publishing. Set longer than the
+            iSpindel sleep interval; 1800 s supports the default 900 s interval.
+
+    config BEER_WIFI_UPLINK_ENABLED
+        bool "Connect to an external Wi-Fi network"
+        default y
+
+    if BEER_WIFI_UPLINK_ENABLED
+
+    config BEER_WIFI_SSID
+        string "External Wi-Fi SSID (2.4 GHz)"
+        default ""
+        help
+            Only the ESP32 connects to this network. Its local AP follows
+            the external channel automatically. The iSpindel connects to
+            the local AP and rediscovers its channel on each wake cycle.
+
+    config BEER_WIFI_PASSWORD
+        string "External Wi-Fi password"
+        default ""
+        help
+            Personal mode: shared network key. Enterprise mode: user password.
+
+    config BEER_WIFI_ENTERPRISE
+        bool "Use WPA2-Enterprise (Wi-Fi with username and password)"
+        default n
+        help
+            Enable for institutional 802.1X networks using PEAP/TTLS.
+            Leave disabled for a home network using a shared password.
+            This is not a browser/captive-portal login.
+
+    config BEER_WIFI_USERNAME
+        string "Wi-Fi Enterprise username" if BEER_WIFI_ENTERPRISE
+        default ""
+
+    config BEER_WIFI_IDENTITY
+        string "Wi-Fi Enterprise identity (empty = username)" if BEER_WIFI_ENTERPRISE
+        default ""
+
+    endif
+endmenu
+
+menu "Beer Monitor - Ubidots STEM"
+
+    config BEER_UBIDOTS_ENABLED
+        bool "Enable Ubidots MQTT telemetry"
+        depends on BEER_WIFI_UPLINK_ENABLED
+        default y
+        help
+            Sends sensor readings over MQTT/TCP port 1883, without TLS, like
+            the Arduino example. Empty credentials keep
+            the receiver running locally without attempting cloud connections.
+
+    if BEER_UBIDOTS_ENABLED
+
+    config BEER_UBIDOTS_TOKEN
+        string "Ubidots STEM token"
+        default ""
+        help
+            Copy the token from API Credentials in your STEM account.
+            Stored in the local sdkconfig and firmware; never logged.
+
+    config BEER_UBIDOTS_DEVICE_LABEL
+        string "Ubidots device API label"
+        default "beer-monitor"
+        help
+            Use lowercase letters, digits, hyphens and underscores only.
+            Use a different label for each physical monitor.
+
+    config BEER_UBIDOTS_INTERVAL_SECONDS
+        int "Interval between upload attempts (seconds)"
+        range 120 86400
+        default 300
+        help
+            Five variables every 300 seconds consume about 1440 dots/day.
+            The STEM allowance is 4000 dots/day shared across the account.
+            Publish errors also wait this interval. QoS 0, retain disabled.
+
+    endif
+endmenu

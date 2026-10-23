@@ -11,6 +11,7 @@
 #include "DisplayTest.h"
 #include "RtcClock.h"
 #include "RelayTest.h"
+#include "UbidotsTelemetry.h"
 
 static const char *TAG = "ISPINDEL";
 
@@ -33,6 +34,7 @@ void app_main(void) {
     ispindel_receiver_start();
     local_temperature_start();
     display_test_start();
+    ubidots_telemetry_start();
 
-    ESP_LOGI(TAG, "Receptor pronto no canal %u", BREW_CHANNEL);
+    ESP_LOGI(TAG, "Receptor Wi-Fi/HTTP pronto; porta %u", BREW_HTTP_PORT);
 }

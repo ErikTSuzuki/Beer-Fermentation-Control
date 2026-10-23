@@ -1,183 +1,141 @@
 #include "IspindelReceiver.h"
 #include "TelemetryLogger.h"
-#include "BrewProtocol.h"
+#include "BrewJson.h"
 
-#include <math.h>
+#include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <strings.h>
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "esp_err.h"
-#include "esp_idf_version.h"
+#include "esp_http_server.h"
 #include "esp_log.h"
-#include "esp_now.h"
+#include "esp_netif.h"
 #include "esp_wifi.h"
-
-#if ESP_IDF_VERSION_MAJOR < 5
-#error "Este exemplo usa a API de recepcao do ESP-IDF 5 ou superior."
-#endif
+#include "lwip/sockets.h"
 
 static const char *TAG = "ISPINDEL";
+static QueueHandle_t latestQueue;
+static httpd_handle_t server;
+// Os handlers do servidor executam sequencialmente na mesma tarefa.
+static bool selected;
+static uint8_t sensorMac[6];
+static bool havePrevious;
+static BrewTelemetry previous;
+static uint32_t count;
 
-typedef struct {
+static esp_err_t localConnectionOnly(httpd_handle_t handle, int fd) {
+    (void)handle;
+    esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    esp_netif_ip_info_t info = {0};
+    struct sockaddr_in local = {0};
+    socklen_t length = sizeof(local);
+    struct ifreq interface = {0};
+    // ESP-IDF 5/6.0 nao oferece bind de interface em httpd_config_t.
+    // Fecha conexoes pela interface externa antes de ler qualquer HTTP.
+    if (!ap || esp_netif_get_ip_info(ap, &info) != ESP_OK ||
+        getsockname(fd, (struct sockaddr *)&local, &length) < 0 ||
+        local.sin_family != AF_INET || local.sin_addr.s_addr != info.ip.addr ||
+        esp_netif_get_netif_impl_name(ap, interface.ifr_name) != ESP_OK ||
+        setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface, sizeof(interface)) < 0) {
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+static bool sourceStation(int fd, uint8_t mac[6], int *rssi) {
+    struct sockaddr_in peer = {0};
+    socklen_t length = sizeof(peer);
+    if (getpeername(fd, (struct sockaddr *)&peer, &length) < 0 ||
+        peer.sin_family != AF_INET) return false;
+    wifi_sta_list_t stations = {0};
+    esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (!ap || esp_wifi_ap_get_sta_list(&stations) != ESP_OK) return false;
+    for (int i = 0; i < stations.num; ++i) {
+        esp_netif_pair_mac_ip_t client = {0};
+        memcpy(client.mac, stations.sta[i].mac, sizeof(client.mac));
+        if (esp_netif_dhcps_get_clients_by_mac(ap, 1, &client) == ESP_OK &&
+            client.ip.addr != 0 && client.ip.addr == peer.sin_addr.s_addr) {
+            memcpy(mac, client.mac, sizeof(client.mac));
+            *rssi = stations.sta[i].rssi;
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t reject(httpd_req_t *request, const char *status, const char *body) {
+    httpd_resp_set_status(request, status);
+    httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Connection", "close");
+    httpd_resp_send(request, body, HTTPD_RESP_USE_STRLEN);
+    // Fecha tambem quando o corpo rejeitado nao tiver sido consumido.
+    return ESP_FAIL;
+}
+
+static esp_err_t receiveReading(httpd_req_t *request) {
     uint8_t mac[6];
     int rssi;
+    if (!sourceStation(httpd_req_to_sockfd(request), mac, &rssi)) {
+        return reject(request, "403 Forbidden", "{\"accepted\":false,\"error\":\"local_station_required\"}");
+    }
+    char contentType[64];
+    if (httpd_req_get_hdr_value_str(request, "Content-Type", contentType, sizeof(contentType)) != ESP_OK ||
+        strncasecmp(contentType, "application/json", 16) != 0 ||
+        (contentType[16] && contentType[16] != ';' && contentType[16] != ' ')) {
+        return reject(request, "415 Unsupported Media Type", "{\"accepted\":false,\"error\":\"json_required\"}");
+    }
+    if (!request->content_len || request->content_len >= BREW_HTTP_BODY_MAX) {
+        return reject(request, "413 Content Too Large", "{\"accepted\":false,\"error\":\"body_size\"}");
+    }
+    char body[BREW_HTTP_BODY_MAX];
+    size_t received = 0;
+    const TickType_t started = xTaskGetTickCount();
+    while (received < request->content_len) {
+        const int bytes = httpd_req_recv(request, body + received, request->content_len - received);
+        if (bytes <= 0 || xTaskGetTickCount() - started > pdMS_TO_TICKS(3000)) {
+            return reject(request, "408 Request Timeout", "{\"accepted\":false,\"error\":\"incomplete_body\"}");
+        }
+        received += (size_t)bytes;
+    }
     BrewTelemetry packet;
-} RxItem;
-
-static QueueHandle_t rxQueue = NULL;
-static QueueHandle_t latestQueue = NULL;
-
-// Executado pela tarefa Wi-Fi: apenas copia e enfileira.
-static void onReceive(const esp_now_recv_info_t *info,
-                      const uint8_t *data,
-                      int length) {
-    if (!info || !data ||
-        length != (int)(sizeof(BrewTelemetry))) {
-        return;
+    if (!brew_json_parse(body, received, &packet)) {
+        return reject(request, "400 Bad Request", "{\"accepted\":false,\"error\":\"invalid_reading\"}");
     }
-
-    RxItem item = {0};
-
-    memcpy(item.mac, info->src_addr, sizeof(item.mac));
-    memcpy(&item.packet, data, sizeof(item.packet));
-
-    item.rssi = info->rx_ctrl ? info->rx_ctrl->rssi : -127;
-
-    // Não é ISR. Não espera se a fila estiver cheia.
-    // Sem ACK, o transmissor poderá repetir a leitura.
-    xQueueSend(rxQueue, &item, 0);
-}
-
-static bool validReading(const BrewTelemetry *p) {
-    if (!brew_header_valid(&p->header, BREW_TELEMETRY)) {
-        return false;
+    if (selected && memcmp(sensorMac, mac, sizeof(sensorMac)) != 0) {
+        return reject(request, "409 Conflict", "{\"accepted\":false,\"error\":\"another_sensor_selected\"}");
     }
-
-    if (!isfinite(p->temperatureC) ||
-        !isfinite(p->tiltDegrees) ||
-        !isfinite(p->gravity) ||
-        !isfinite(p->batteryV)) {
-        return false;
+    const bool duplicate = havePrevious &&
+        previous.header.sensorId == packet.header.sensorId &&
+        previous.header.bootId == packet.header.bootId &&
+        previous.header.sequence == packet.header.sequence;
+    if (duplicate && memcmp(&packet, &previous, sizeof(packet)) != 0) {
+        return reject(request, "409 Conflict", "{\"accepted\":false,\"error\":\"sequence_conflict\"}");
     }
-
-    return p->temperatureC >= -55.0f &&
-           p->temperatureC <= 125.0f &&
-           p->temperatureC != 85.0f &&
-           p->tiltDegrees >= 0.0f &&
-           p->tiltDegrees <= 90.5f &&
-           p->batteryV > 0.0f &&
-           p->batteryV <= 6.0f;
-}
-
-static esp_err_t acknowledge(const RxItem *item) {
-    if (!esp_now_is_peer_exist(item->mac)) {
-        esp_now_peer_info_t peer = {0};
-
-        memcpy(peer.peer_addr, item->mac, sizeof(peer.peer_addr));
-        peer.channel = BREW_CHANNEL;
-        peer.ifidx = WIFI_IF_STA;
-        peer.encrypt = false;
-
-        esp_err_t result = esp_now_add_peer(&peer);
-
-        if (result != ESP_OK) {
-            return result;
-        }
-    }
-
-    BrewAck ack = item->packet.header;
-    ack.type = BREW_ACK;
-
-    return esp_now_send(
-        item->mac,
-        (const uint8_t *)&ack,
-        sizeof(ack)
-    );
-}
-
-static void receiverTask(void *context) {
-    (void)context;
-    RxItem item = {0};
-
-    // Seleciona o primeiro sensor válido até reiniciar.
-    bool selected = false;
-    uint8_t sensorMac[6] = {0};
-
-    bool havePrevious = false;
-    BrewHeader previous = {0};
-
-    uint32_t count = 0;
-    TickType_t lastValid = xTaskGetTickCount();
-    bool absenceReported = false;
-
-    for (;;) {
-        if (xQueueReceive(rxQueue, &item,
-                          pdMS_TO_TICKS(1000)) != pdTRUE) {
-            if (!absenceReported &&
-                xTaskGetTickCount() - lastValid >
-                    pdMS_TO_TICKS(ISPINDEL_STALE_AFTER_MS)) {
-                ESP_LOGW(TAG, "Sem telemetria valida ha 35 segundos");
-                absenceReported = true;
-            }
-
-            continue;
-        }
-
-        if (!validReading(&item.packet)) {
-            ESP_LOGW(TAG, "Pacote rejeitado na validacao");
-            continue;
-        }
-
-        if (selected &&
-            memcmp(sensorMac, item.mac, sizeof(sensorMac)) != 0) {
-            continue;
-        }
-
-        if (!selected) {
-            memcpy(sensorMac, item.mac, sizeof(sensorMac));
-            selected = true;
-        }
-
-        const BrewTelemetry *p = &item.packet;
-
-        bool duplicate =
-            havePrevious &&
-            previous.sensorId == p->header.sensorId &&
-            previous.bootId == p->header.bootId &&
-            previous.sequence == p->header.sequence;
-
-        // Confirma também retransmissões, caso o ACK anterior se perca.
-        esp_err_t result = acknowledge(&item);
-
-        if (result != ESP_OK) {
-            ESP_LOGW(TAG, "Erro ao enfileirar ACK: %s",
-                     esp_err_to_name(result));
-        }
-
-        lastValid = xTaskGetTickCount();
-        absenceReported = false;
-        const IspindelReading reading = {*p, lastValid};
+    if (!duplicate) {
+        const IspindelReading reading = {packet, xTaskGetTickCount()};
+        // Confirma somente depois de disponibilizar a leitura para tela/nuvem.
         xQueueOverwrite(latestQueue, &reading);
-
-        if (duplicate) {
-            ESP_LOGI(TAG, "Retransmissao: ACK reenviado");
-            continue;
-        }
-
-        previous = p->header;
+        memcpy(sensorMac, mac, sizeof(sensorMac));
+        selected = true;
+        previous = packet;
         havePrevious = true;
-        ++count;
-
-        telemetry_logger_print_reading(p, item.mac, item.rssi, count);
+        telemetry_logger_print_reading(&packet, mac, rssi, ++count);
     }
+    char response[192];
+    snprintf(response, sizeof(response),
+             "{\"accepted\":true,\"version\":%u,\"sensor_id\":%" PRIu32
+             ",\"boot_id\":%" PRIu32 ",\"sequence\":%" PRIu32 "}",
+             BREW_VERSION, packet.header.sensorId, packet.header.bootId, packet.header.sequence);
+    httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Connection", "close");
+    return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
 }
 
 bool ispindel_receiver_create_queue(void) {
-    rxQueue = xQueueCreate(8, sizeof(RxItem));
     latestQueue = xQueueCreate(1, sizeof(IspindelReading));
-    return rxQueue != NULL && latestQueue != NULL;
+    return latestQueue != NULL;
 }
 
 bool ispindel_receiver_latest(IspindelReading *reading) {
@@ -185,14 +143,21 @@ bool ispindel_receiver_latest(IspindelReading *reading) {
 }
 
 void ispindel_receiver_start(void) {
-    ESP_ERROR_CHECK(esp_now_init());
-
-    if (xTaskCreate(receiverTask, "ispindel_rx",
-                    4096, NULL, 4, NULL) != pdPASS) {
-        ESP_LOGE(TAG, "Falha ao criar tarefa");
-        abort();
-    }
-
-    ESP_ERROR_CHECK(esp_now_register_recv_cb(onReceive));
-
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = BREW_HTTP_PORT;
+    config.stack_size = 6144;
+    config.max_open_sockets = 2;
+    config.recv_wait_timeout = 2;
+    config.send_wait_timeout = 2;
+    config.lru_purge_enable = true;
+    config.open_fn = localConnectionOnly;
+    ESP_ERROR_CHECK(httpd_start(&server, &config));
+    const httpd_uri_t endpoint = {
+        .uri = BREW_HTTP_PATH,
+        .method = HTTP_POST,
+        .handler = receiveReading,
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &endpoint));
+    ESP_LOGI(TAG, "Recepcao HTTP/JSON ativa: POST %s:%u%s",
+             CONFIG_BEER_AP_IP, BREW_HTTP_PORT, BREW_HTTP_PATH);
 }

@@ -2,3 +2,8 @@ dependencies:
   idf: ">=5.0.0"
   espressif/onewire_bus: "^1.1.0"
   espressif/ds18b20: "0.3.1~1"
+  espressif/cjson: "^1.7.19"
+  espressif/mqtt:
+    version: "^1.1.0"
+    rules:
+      - if: "idf_version >=6.0"
