@@ -1,9 +1,10 @@
 """Exercise the actual HTTP handler with simulated ESP-IDF interfaces.
 
-Run after test_hybrid_sender.py: python tests/test_http_receiver.py [path-to-gcc]
+Run: python tests/test_http_receiver.py [path-to-gcc]
 Generated files stay in build/hybrid-tests/receiver.
 """
 from pathlib import Path
+import json
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,9 @@ typedef struct { uint8_t mac[6]; int rssi; } wifi_sta_info_t;
 typedef struct { int num; wifi_sta_info_t sta[1]; } wifi_sta_list_t;
 struct sockaddr { int family; };
 struct sockaddr_in { int sin_family; struct { uint32_t s_addr; } sin_addr; };
+struct in6_addr { uint8_t s6_addr[16]; };
+struct sockaddr_in6 { int sin6_family; struct in6_addr sin6_addr; };
+struct sockaddr_storage { int ss_family; uint32_t storage[15]; };
 struct ifreq { char ifr_name[16]; };
 typedef struct { size_t content_len; } httpd_req_t;
 typedef struct {
@@ -56,6 +60,8 @@ typedef struct {
 #define HTTP_POST 1
 #define HTTPD_RESP_USE_STRLEN -1
 #define AF_INET 2
+#define AF_INET6 10
+#define IN6_IS_ADDR_V4MAPPED(a) (!memcmp((a)->s6_addr, "\0\0\0\0\0\0\0\0\0\0\xff\xff", 12))
 #define SOL_SOCKET 1
 #define SO_BINDTODEVICE 2
 #define getsockname mock_getsockname
@@ -92,24 +98,45 @@ static IspindelReading cached;
 static int writes, logs, status, macValue = 1;
 static uint32_t now, localIp = 1, peerIp = 2, dhcpIp = 2;
 static bool associated = true, recvFail, sendFail, slow;
+static int localFamily = AF_INET, peerFamily = AF_INET;
+static bool localMapped = true, peerMapped = true, socketFail, shortAddress, bindFail;
 static const char *input, *contentType = "application/json";
 static size_t offset;
 static char response[256];
 static esp_netif_t netif;
+static int socketAddress(struct sockaddr *out, socklen_t *length, int family, bool mapped, uint32_t ip) {
+    if (socketFail) return -1;
+    struct sockaddr_storage storage = {0};
+    socklen_t actual;
+    if (family == AF_INET) {
+        struct sockaddr_in *addr = (struct sockaddr_in *)&storage;
+        addr->sin_family = family; addr->sin_addr.s_addr = ip;
+        actual = sizeof(*addr);
+    } else {
+        struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&storage;
+        addr->sin6_family = family;
+        addr->sin6_addr.s6_addr[10] = mapped ? 0xff : 0;
+        addr->sin6_addr.s6_addr[11] = mapped ? 0xff : 0;
+        memcpy(&addr->sin6_addr.s6_addr[12], &ip, sizeof(ip));
+        actual = sizeof(*addr);
+    }
+    if (shortAddress) actual = sizeof(int);
+    if (*length > actual) *length = actual;
+    memcpy(out, &storage, *length);
+    return 0;
+}
 int mock_getsockname(int fd, struct sockaddr *out, socklen_t *length) {
-    (void)fd; (void)length;
-    struct sockaddr_in *addr = (struct sockaddr_in *)out;
-    addr->sin_family = AF_INET; addr->sin_addr.s_addr = localIp; return 0;
+    (void)fd;
+    return socketAddress(out, length, localFamily, localMapped, localIp);
 }
 int mock_getpeername(int fd, struct sockaddr *out, socklen_t *length) {
-    (void)fd; (void)length;
-    struct sockaddr_in *addr = (struct sockaddr_in *)out;
-    addr->sin_family = AF_INET; addr->sin_addr.s_addr = peerIp; return 0;
+    (void)fd;
+    return socketAddress(out, length, peerFamily, peerMapped, peerIp);
 }
 int mock_setsockopt(int fd, int level, int option, const void *value, socklen_t length) {
     (void)fd; (void)length;
     assert(level == SOL_SOCKET && option == SO_BINDTODEVICE);
-    assert(!strcmp(((const struct ifreq *)value)->ifr_name, "ap1")); return 0;
+    assert(!strcmp(((const struct ifreq *)value)->ifr_name, "ap1")); return bindFail ? -1 : 0;
 }
 esp_netif_t *esp_netif_get_handle_from_ifkey(const char *key) {
     assert(!strcmp(key, "WIFI_AP_DEF")); return &netif;
@@ -191,8 +218,37 @@ int main(int argc, char **argv) {
     assert(!ispindel_receiver_latest(&reading)); ++scenarios;
     assert(localConnectionOnly(NULL, 1) == ESP_OK); ++scenarios;
     localIp = 3; assert(localConnectionOnly(NULL, 1) == ESP_FAIL); localIp = 1; ++scenarios;
+    localFamily = AF_INET6;
+#if LWIP_IPV6
+    assert(localConnectionOnly(NULL, 1) == ESP_OK); ++scenarios;
+#else
+    assert(localConnectionOnly(NULL, 1) == ESP_FAIL); ++scenarios;
+#endif
+    localIp = 3; assert(localConnectionOnly(NULL, 1) == ESP_FAIL); localIp = 1; ++scenarios;
+    localMapped = false; assert(localConnectionOnly(NULL, 1) == ESP_FAIL); localMapped = true; ++scenarios;
+    shortAddress = true; assert(localConnectionOnly(NULL, 1) == ESP_FAIL); shortAddress = false; ++scenarios;
+    localFamily = AF_INET;
+    socketFail = true; assert(localConnectionOnly(NULL, 1) == ESP_FAIL); socketFail = false; ++scenarios;
+    bindFail = true; assert(localConnectionOnly(NULL, 1) == ESP_FAIL); bindFail = false; ++scenarios;
+#if LWIP_IPV6
+    localFamily = peerFamily = AF_INET6;
+    assert(localConnectionOnly(NULL, 1) == ESP_OK); ++scenarios;
+#endif
     assert(request(body, size) == ESP_OK && status == 200 && writes == 1 && logs == 1);
     assert(strstr(response, "\"accepted\":true")); ++scenarios;
+    localFamily = peerFamily = AF_INET;
+    assert(request(body, size) == ESP_OK && writes == 1 && logs == 1); ++scenarios;
+    peerFamily = AF_INET6;
+#if LWIP_IPV6
+    assert(request(body, size) == ESP_OK && writes == 1); ++scenarios;
+    peerIp = 9; assert(request(body, size) == ESP_FAIL && status == 403); peerIp = 2; ++scenarios;
+#else
+    assert(request(body, size) == ESP_FAIL && status == 403); ++scenarios;
+#endif
+    peerMapped = false; assert(request(body, size) == ESP_FAIL && status == 403); peerMapped = true; ++scenarios;
+    shortAddress = true; assert(request(body, size) == ESP_FAIL && status == 403); shortAddress = false; ++scenarios;
+    peerFamily = AF_INET;
+    socketFail = true; assert(request(body, size) == ESP_FAIL && status == 403); socketFail = false; ++scenarios;
     assert(ispindel_receiver_latest(&reading));
     const TickType_t firstReceived = reading.receivedAt;
     now = 1000;
@@ -235,23 +291,30 @@ def main():
     (BUILD / "sdk_mock.h").write_text(MOCK, encoding="utf-8")
     for name in [
         "freertos/FreeRTOS.h", "freertos/queue.h", "freertos/task.h", "sdkconfig.h",
-        "esp_err.h", "esp_http_server.h", "esp_log.h", "esp_netif.h", "esp_wifi.h", "lwip/sockets.h",
+        "esp_err.h", "esp_http_server.h", "esp_log.h", "esp_netif.h", "esp_wifi.h", "lwip/sockets.h", "lwip/inet.h",
     ]:
         path = BUILD / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('#include "sdk_mock.h"\n', encoding="utf-8")
     source = BUILD / "receiver_test.c"
     source.write_text(HARNESS, encoding="utf-8")
-    executable = BUILD / ("receiver_test.exe" if sys.platform == "win32" else "receiver_test")
-    subprocess.run([
-        compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-DCJSON_NESTING_LIMIT=8",
-        "-I" + str(BUILD), "-I" + str(PROJECT / "main"), "-I" + str(CJSON),
-        str(source), str(PROJECT / "main/BrewJson.c"), str(CJSON / "cJSON.c"),
-        "-lm", "-o", str(executable),
-    ], check=True)
-    subprocess.run([
-        str(executable), str(BUILD.parent / "sender-sample.json"),
-    ], check=True, timeout=10)
+    sample = BUILD / "receiver-sample.json"
+    sample.write_text(json.dumps({
+        "version": 1, "sensor_id": 123, "boot_id": 456, "sequence": 1,
+        "gravity_unit": 1, "temperature_c": 23.38, "tilt_degrees": 86.64,
+        "gravity": 1.12, "battery_v": 4.04,
+    }, separators=(",", ":")), encoding="utf-8")
+    for ipv6 in (1, 0):
+        suffix = ".exe" if sys.platform == "win32" else ""
+        executable = BUILD / (f"receiver_test_ipv6_{ipv6}" + suffix)
+        subprocess.run([
+            compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-DCJSON_NESTING_LIMIT=8",
+            f"-DLWIP_IPV6={ipv6}",
+            "-I" + str(BUILD), "-I" + str(PROJECT / "main"), "-I" + str(CJSON),
+            str(source), str(PROJECT / "main/BrewJson.c"), str(CJSON / "cJSON.c"),
+            "-lm", "-o", str(executable),
+        ], check=True)
+        subprocess.run([str(executable), str(sample)], check=True, timeout=10)
 
 
 if __name__ == "__main__":

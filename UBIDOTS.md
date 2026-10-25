@@ -64,6 +64,25 @@ idf.py -p COM6 flash monitor
 
 Ajuste a porta serial ao seu ESP32. Nenhuma placa e gravada pela compilacao.
 
+## Hora do RTC
+
+O ESP32 inicia SNTP em `pool.ntp.org` depois de obter IP na rede externa.
+Ao receber uma sincronizacao, grava a hora de Brasilia no DS3232M e a
+tela passa a mostrar esse horario. O fuso fica em `main/RtcConfig.h`:
+`RTC_TIMEZONE="BRT3"` (formato POSIX, UTC-03:00 sem horario de verao).
+O cliente repete a sincronizacao conforme `CONFIG_LWIP_SNTP_UPDATE_DELAY`
+(uma hora por padrao) e e reiniciado quando a conexao Wi-Fi retorna.
+
+Procure `RTC sincronizado por NTP (Brasilia): ...` no monitor. Sem acesso
+ao servidor NTP, o modulo continua fornecendo a hora que ja possui; uma
+hora valida nao e substituida pela hora da compilacao. Se o RTC perdeu a
+hora, a compilacao ainda serve como ajuste aproximado ate chegar o NTP.
+As notificacoes de rede nao acessam I2C: toda leitura e gravacao ocorre
+na tarefa do RTC, com nova tentativa quando uma gravacao falha.
+
+Teste local: `python tests/test_rtc_clock.py`. Ele cobre o fuso, viradas
+de data/ano, funcionamento offline, reconexao e repeticao de gravacoes.
+
 ## Configurar e compilar o iSpindel
 
 O firmware neste workspace esta em `firmware_spidnel/iSpindel`.

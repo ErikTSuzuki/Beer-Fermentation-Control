@@ -13,6 +13,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "lwip/inet.h"
 #include "lwip/sockets.h"
 
 static const char *TAG = "ISPINDEL";
@@ -25,18 +26,41 @@ static bool havePrevious;
 static BrewTelemetry previous;
 static uint32_t count;
 
+static bool socketIpv4(int fd, bool peer, esp_ip4_addr_t *address) {
+    struct sockaddr_storage storage = {0};
+    socklen_t length = sizeof(storage);
+    const int result = peer
+        ? getpeername(fd, (struct sockaddr *)&storage, &length)
+        : getsockname(fd, (struct sockaddr *)&storage, &length);
+    if (result < 0) return false;
+    if (storage.ss_family == AF_INET && length >= sizeof(struct sockaddr_in)) {
+        const struct sockaddr_in *ipv4 = (const struct sockaddr_in *)&storage;
+        address->addr = ipv4->sin_addr.s_addr;
+        return true;
+    }
+#if LWIP_IPV6
+    // O servidor dual-stack apresenta clientes IPv4 como ::ffff:a.b.c.d.
+    if (storage.ss_family == AF_INET6 && length >= sizeof(struct sockaddr_in6)) {
+        const struct sockaddr_in6 *ipv6 = (const struct sockaddr_in6 *)&storage;
+        if (IN6_IS_ADDR_V4MAPPED(&ipv6->sin6_addr)) {
+            memcpy(&address->addr, &ipv6->sin6_addr.s6_addr[12], sizeof(address->addr));
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
 static esp_err_t localConnectionOnly(httpd_handle_t handle, int fd) {
     (void)handle;
     esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     esp_netif_ip_info_t info = {0};
-    struct sockaddr_in local = {0};
-    socklen_t length = sizeof(local);
+    esp_ip4_addr_t local = {0};
     struct ifreq interface = {0};
     // ESP-IDF 5/6.0 nao oferece bind de interface em httpd_config_t.
     // Fecha conexoes pela interface externa antes de ler qualquer HTTP.
     if (!ap || esp_netif_get_ip_info(ap, &info) != ESP_OK ||
-        getsockname(fd, (struct sockaddr *)&local, &length) < 0 ||
-        local.sin_family != AF_INET || local.sin_addr.s_addr != info.ip.addr ||
+        !socketIpv4(fd, false, &local) || local.addr != info.ip.addr ||
         esp_netif_get_netif_impl_name(ap, interface.ifr_name) != ESP_OK ||
         setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &interface, sizeof(interface)) < 0) {
         return ESP_FAIL;
@@ -45,10 +69,8 @@ static esp_err_t localConnectionOnly(httpd_handle_t handle, int fd) {
 }
 
 static bool sourceStation(int fd, uint8_t mac[6], int *rssi) {
-    struct sockaddr_in peer = {0};
-    socklen_t length = sizeof(peer);
-    if (getpeername(fd, (struct sockaddr *)&peer, &length) < 0 ||
-        peer.sin_family != AF_INET) return false;
+    esp_ip4_addr_t peer = {0};
+    if (!socketIpv4(fd, true, &peer)) return false;
     wifi_sta_list_t stations = {0};
     esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     if (!ap || esp_wifi_ap_get_sta_list(&stations) != ESP_OK) return false;
@@ -56,7 +78,7 @@ static bool sourceStation(int fd, uint8_t mac[6], int *rssi) {
         esp_netif_pair_mac_ip_t client = {0};
         memcpy(client.mac, stations.sta[i].mac, sizeof(client.mac));
         if (esp_netif_dhcps_get_clients_by_mac(ap, 1, &client) == ESP_OK &&
-            client.ip.addr != 0 && client.ip.addr == peer.sin_addr.s_addr) {
+            client.ip.addr != 0 && client.ip.addr == peer.addr) {
             memcpy(mac, client.mac, sizeof(client.mac));
             *rssi = stations.sta[i].rssi;
             return true;
