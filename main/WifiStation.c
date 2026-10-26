@@ -1,5 +1,6 @@
 #include "WifiStation.h"
 #include "BrewProtocol.h"
+#include "CaptivePortal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -153,6 +154,10 @@ void wifi_station_initialize(void) {
         ESP_ERROR_CHECK(stopped);
     }
     ESP_ERROR_CHECK(esp_netif_set_ip_info(apNetif, &local));
+    const esp_err_t portalDhcp = captive_portal_configure_dhcp(apNetif);
+    if (portalDhcp != ESP_OK)
+        ESP_LOGW(TAG, "DNS do portal indisponivel: %s; use http://%s/",
+                 esp_err_to_name(portalDhcp), CONFIG_BEER_AP_IP);
     ESP_ERROR_CHECK(esp_netif_dhcps_start(apNetif));
 
     const size_t apSsidLength = strlen(CONFIG_BEER_AP_SSID);
@@ -168,7 +173,7 @@ void wifi_station_initialize(void) {
     apConfig.ap.ssid_len = apSsidLength;
     apConfig.ap.channel = BREW_CHANNEL;
     apConfig.ap.authmode = WIFI_AUTH_WPA2_PSK;
-    apConfig.ap.max_connection = 1;
+    apConfig.ap.max_connection = 4; // iSpindel e ate tres dispositivos de configuracao.
     apConfig.ap.pmf_cfg.required = false; // Compatibilidade com ESP8266.
 
     wifi_init_config_t wifiConfig = WIFI_INIT_CONFIG_DEFAULT();

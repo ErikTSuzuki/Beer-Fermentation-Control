@@ -1,6 +1,7 @@
 #include "IspindelReceiver.h"
 #include "TelemetryLogger.h"
 #include "BrewJson.h"
+#include "LocalWebUi.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -11,6 +12,7 @@
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "lwip/inet.h"
@@ -136,7 +138,8 @@ static esp_err_t receiveReading(httpd_req_t *request) {
         return reject(request, "409 Conflict", "{\"accepted\":false,\"error\":\"sequence_conflict\"}");
     }
     if (!duplicate) {
-        const IspindelReading reading = {packet, xTaskGetTickCount()};
+        const IspindelReading reading = {.packet = packet, .receivedAt = xTaskGetTickCount(),
+            .receivedAtUs = esp_timer_get_time()};
         // Confirma somente depois de disponibilizar a leitura para tela/nuvem.
         xQueueOverwrite(latestQueue, &reading);
         memcpy(sensorMac, mac, sizeof(sensorMac));
@@ -164,11 +167,19 @@ bool ispindel_receiver_latest(IspindelReading *reading) {
     return reading && latestQueue && xQueuePeek(latestQueue, reading, 0) == pdTRUE;
 }
 
+static bool localUiClient(httpd_req_t *request) {
+    uint8_t mac[6];
+    int rssi;
+    return sourceStation(httpd_req_to_sockfd(request), mac, &rssi);
+}
+
 void ispindel_receiver_start(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = BREW_HTTP_PORT;
-    config.stack_size = 6144;
-    config.max_open_sockets = 2;
+    config.stack_size = 10240;
+    config.max_open_sockets = 5; // Reserva um socket para DNS do portal e um para reconexao.
+    config.max_req_hdr_len = 2048; // Headers de navegadores e senha UTF-8 codificada.
+    config.task_priority = 2; // Interface local nunca tem prioridade sobre o controle.
     config.recv_wait_timeout = 2;
     config.send_wait_timeout = 2;
     config.lru_purge_enable = true;
@@ -180,6 +191,7 @@ void ispindel_receiver_start(void) {
         .handler = receiveReading,
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &endpoint));
+    ESP_ERROR_CHECK(local_web_ui_register(server, localUiClient));
     ESP_LOGI(TAG, "Recepcao HTTP/JSON ativa: POST %s:%u%s",
              CONFIG_BEER_AP_IP, BREW_HTTP_PORT, BREW_HTTP_PATH);
 }

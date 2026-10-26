@@ -12,6 +12,8 @@
 typedef struct {
     BrewTelemetry packet;
     TickType_t receivedAt;
+    // Idade da densidade sem depender da volta do contador de ticks.
+    int64_t receivedAtUs;
 } IspindelReading;
 
 // Inicializar uma vez; start requer SoftAP e caixa postal ja inicializados.

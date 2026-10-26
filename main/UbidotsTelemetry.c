@@ -5,6 +5,9 @@
 #include "IspindelReceiver.h"
 #include "LocalTemperature.h"
 #include "WifiStation.h"
+#include "TemperatureControl.h"
+#include "FermentationRecipe.h"
+#include "cJSON.h"
 
 #include <inttypes.h>
 #include <math.h>
@@ -12,6 +15,7 @@
 #include <string.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "esp_timer.h"
 #include "mqtt_client.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -36,43 +40,88 @@ static bool validLabel(const char *label) {
 static int buildPayload(char *payload, size_t capacity) {
     LocalTemperature local = {0};
     IspindelReading remote = {0};
+    TemperatureControlStatus control = {0};
+    FermentationRecipeStatus recipe = {0};
     const bool haveLocal = local_temperature_latest(&local);
     const bool haveRemote = ispindel_receiver_latest(&remote);
+    const bool haveControl = temperature_control_latest(&control);
+    const bool haveRecipe = fermentation_recipe_latest(&recipe);
+    const int64_t nowUs = esp_timer_get_time();
     const TickType_t now = xTaskGetTickCount();
     const bool localOk = haveLocal && local.valid && isfinite(local.temperatureC) &&
         now - local.sampledAt <= pdMS_TO_TICKS(5000);
     const BrewTelemetry *p = &remote.packet;
-    const bool remoteOk = haveRemote &&
-        now - remote.receivedAt <= ISPINDEL_STALE_AFTER_TICKS &&
-        isfinite(p->temperatureC) && isfinite(p->tiltDegrees) &&
-        isfinite(p->gravity) && isfinite(p->batteryV);
-    if (!localOk && !remoteOk) return 0;
-
-    int length = snprintf(payload, capacity, "{");
+    const bool remoteOk = haveRemote && now - remote.receivedAt <= ISPINDEL_STALE_AFTER_TICKS &&
+        isfinite(p->temperatureC) && isfinite(p->tiltDegrees) && isfinite(p->gravity) && isfinite(p->batteryV);
+    const bool controlOk = haveControl && nowUs >= control.updatedAtUs &&
+        nowUs - control.updatedAtUs <= INT64_C(2000000);
+    const bool recipeOk = haveRecipe && nowUs >= recipe.updatedAtUs &&
+        nowUs - recipe.updatedAtUs <= INT64_C(2500000);
+    if (!localOk && !remoteOk && !controlOk && !recipeOk) return 0;
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return -1;
     int dots = 0;
     if (localOk) {
-        length = snprintf(payload, capacity, "{\"temperatura-local\":%.3f",
-                          (double)local.temperatureC);
-        dots = 1;
+        if (!cJSON_AddNumberToObject(root, "temperatura-local", round(local.temperatureC * 1000.0) / 1000.0)) goto failure;
+        ++dots;
     }
-    if (length < 0 || (size_t)length >= capacity) return -1;
     if (remoteOk) {
         const char *unit = p->header.gravityUnit == BREW_UNIT_SG ? "sg" :
             p->header.gravityUnit == BREW_UNIT_PLATO ? "plato" : "unknown";
-        const int written = snprintf(payload + length, capacity - (size_t)length,
-            "%s\"temperatura-ispindel\":%.3f,\"inclinacao\":%.3f,"
-            "\"densidade\":{\"value\":%.6f,\"context\":{\"unit\":\"%s\","
-            "\"sensor_id\":\"%06" PRIX32 "\"}},\"bateria\":%.3f",
-            dots ? "," : "", (double)p->temperatureC, (double)p->tiltDegrees,
-            (double)p->gravity, unit, p->header.sensorId, (double)p->batteryV);
-        if (written < 0 || (size_t)written >= capacity - (size_t)length) return -1;
-        length += written;
+        char sensorId[16];
+        snprintf(sensorId, sizeof(sensorId), "%06" PRIX32, p->header.sensorId);
+        cJSON *gravity = cJSON_AddObjectToObject(root, "densidade");
+        cJSON *context = gravity ? cJSON_AddObjectToObject(gravity, "context") : NULL;
+        if (!context || !cJSON_AddNumberToObject(gravity, "value", round(p->gravity * 1000000.0) / 1000000.0) ||
+            !cJSON_AddStringToObject(context, "unit", unit) || !cJSON_AddStringToObject(context, "sensor_id", sensorId) ||
+            !cJSON_AddNumberToObject(root, "temperatura-ispindel", round(p->temperatureC * 1000.0) / 1000.0) ||
+            !cJSON_AddNumberToObject(root, "inclinacao", round(p->tiltDegrees * 1000.0) / 1000.0) ||
+            !cJSON_AddNumberToObject(root, "bateria", round(p->batteryV * 1000.0) / 1000.0)) goto failure;
         dots += 4;
     }
-    if ((size_t)length + 2 > capacity) return -1;
-    payload[length++] = '}';
-    payload[length] = '\0';
+    if (controlOk) {
+        cJSON *state = cJSON_AddObjectToObject(root, "estado-controle");
+        cJSON *context = state ? cJSON_AddObjectToObject(state, "context") : NULL;
+        if (!context || !cJSON_AddNumberToObject(root, "temperatura-alvo", control.targetC) ||
+            !cJSON_AddNumberToObject(state, "value", control.state) ||
+            !cJSON_AddStringToObject(context, "estado", temperature_control_state_name(control.state)) ||
+            !cJSON_AddBoolToObject(context, "habilitado", control.enabled) ||
+            !cJSON_AddBoolToObject(context, "sensor_valido", control.sensorValid) ||
+            !cJSON_AddBoolToObject(context, "aquecedor", control.heaterOn) ||
+            !cJSON_AddBoolToObject(context, "refrigerador", control.coolerOn) ||
+            !cJSON_AddNumberToObject(context, "espera_s", control.waitSeconds)) goto failure;
+        dots += 2;
+    }
+    if (recipeOk) {
+        cJSON *stage = cJSON_AddObjectToObject(root, "etapa-fermentacao");
+        cJSON *context = stage ? cJSON_AddObjectToObject(stage, "context") : NULL;
+        const unsigned index = recipe.state == RECIPE_IDLE || !recipe.stepCount ? 0 : recipe.stepIndex + 1;
+        if (!context || !cJSON_AddNumberToObject(stage, "value", index) ||
+            !cJSON_AddNumberToObject(context, "estado", recipe.state) ||
+            !cJSON_AddStringToObject(context, "receita", recipe.recipeName) ||
+            !cJSON_AddStringToObject(context, "etapa", recipe.stepName) ||
+            !cJSON_AddNumberToObject(context, "total_etapas", recipe.stepCount) ||
+            !cJSON_AddNumberToObject(context, "motivo", recipe.reason) ||
+            !cJSON_AddBoolToObject(context, "densidade_disponivel", recipe.gravityAvailable) ||
+            !cJSON_AddBoolToObject(context, "armazenamento_ok", recipe.storageOk) ||
+            !cJSON_AddNumberToObject(context, "erro", recipe.lastError) ||
+            !cJSON_AddNumberToObject(root, "dias-etapa", round(recipe.elapsedDays * 100000.0) / 100000.0) ||
+            !cJSON_AddNumberToObject(root, "dias-max-etapa", recipe.maximumDays)) goto failure;
+        if (recipe.hasGravityLimit && !cJSON_AddNumberToObject(context, "densidade_limite", recipe.gravityLimit)) goto failure;
+        dots += 3;
+    }
+    // Escrita limitada: inclui terminador e rejeita payload truncado.
+    char *json = cJSON_PrintUnformatted(root);
+    if (!json) goto failure;
+    const size_t length = strlen(json);
+    if (length + 1 > capacity) { cJSON_free(json); goto failure; }
+    memcpy(payload, json, length + 1);
+    cJSON_free(json);
+    cJSON_Delete(root);
     return dots;
+failure:
+    cJSON_Delete(root);
+    return -1;
 }
 
 static void onMqttEvent(void *arg, esp_event_base_t base, int32_t id, void *data) {
@@ -127,7 +176,7 @@ static void telemetryTask(void *context) {
         .session.keepalive = 15,
         .network.reconnect_timeout_ms = 30000,
         .network.timeout_ms = 5000,
-        .buffer.size = 1024,
+        .buffer.size = 2048,
         .task.priority = 2,
         .task.stack_size = 6144,
     };
@@ -162,7 +211,7 @@ static void telemetryTask(void *context) {
             continue;
         }
         if (!attempted || xTaskGetTickCount() - lastAttempt >= interval) {
-            char payload[768];
+            char payload[2048];
             const int dots = buildPayload(payload, sizeof(payload));
             if (dots > 0) {
                 // Intervalo medido entre inicios, inclusive apos erro ou reconexao.
@@ -177,7 +226,7 @@ static void telemetryTask(void *context) {
                     ESP_LOGW(TAG, "Falha ao publicar MQTT; aguardando proximo intervalo");
                 }
             } else if (dots < 0) {
-                ESP_LOGE(TAG, "Payload excede o buffer; envio cancelado");
+                ESP_LOGE(TAG, "Falha ao montar payload MQTT ou tamanho excedido; envio cancelado");
             }
         }
         vTaskDelay(pdMS_TO_TICKS(1000));

@@ -40,7 +40,7 @@ struct sockaddr_storage { int ss_family; uint32_t storage[15]; };
 struct ifreq { char ifr_name[16]; };
 typedef struct { size_t content_len; } httpd_req_t;
 typedef struct {
-    int server_port, stack_size, max_open_sockets, recv_wait_timeout, send_wait_timeout;
+    int server_port, stack_size, max_open_sockets, task_priority, max_req_hdr_len, recv_wait_timeout, send_wait_timeout;
     bool lru_purge_enable;
     esp_err_t (*open_fn)(httpd_handle_t, int);
 } httpd_config_t;
@@ -79,6 +79,7 @@ QueueHandle_t xQueueCreate(unsigned, unsigned);
 int xQueueOverwrite(QueueHandle_t, const void *);
 int xQueuePeek(QueueHandle_t, void *, unsigned);
 TickType_t xTaskGetTickCount(void);
+int64_t esp_timer_get_time(void);
 int httpd_resp_set_status(httpd_req_t *, const char *);
 int httpd_resp_set_type(httpd_req_t *, const char *);
 int httpd_resp_set_hdr(httpd_req_t *, const char *, const char *);
@@ -166,6 +167,7 @@ int xQueuePeek(QueueHandle_t queue, void *item, unsigned wait) {
     memcpy(item, &cached, sizeof(cached)); return pdTRUE;
 }
 TickType_t xTaskGetTickCount(void) { return now; }
+int64_t esp_timer_get_time(void) { return (int64_t)now * 1000; }
 void telemetry_logger_print_reading(const BrewTelemetry *p, const uint8_t *mac, int rssi, uint32_t count) {
     (void)p; assert(mac[0] == 1 && rssi == -42); assert(count == (uint32_t)++logs);
 }
@@ -196,12 +198,16 @@ int httpd_req_recv(httpd_req_t *req, char *out, size_t length) {
     now += slow ? 4000 : 10; return (int)length;
 }
 int httpd_start(httpd_handle_t *handle, const httpd_config_t *config) {
-    assert(config->server_port == 80 && config->max_open_sockets == 2);
+    assert(config->server_port == 80 && config->max_open_sockets == 5 && config->task_priority == 2);
+    assert(config->max_req_hdr_len == 2048 && config->stack_size == 10240);
     assert(config->open_fn == localConnectionOnly); *handle = &netif; return ESP_OK;
 }
 int httpd_register_uri_handler(httpd_handle_t handle, const httpd_uri_t *uri) {
     (void)handle; assert(!strcmp(uri->uri, "/ispindel") && uri->method == HTTP_POST);
     assert(uri->handler == receiveReading); return ESP_OK;
+}
+esp_err_t local_web_ui_register(httpd_handle_t handle, bool (*local)(httpd_req_t *)) {
+    (void)handle; assert(local == localUiClient); return ESP_OK;
 }
 static int request(const char *body, size_t length) {
     input = body; offset = 0; status = 200; response[0] = 0;
@@ -251,9 +257,11 @@ int main(int argc, char **argv) {
     socketFail = true; assert(request(body, size) == ESP_FAIL && status == 403); socketFail = false; ++scenarios;
     assert(ispindel_receiver_latest(&reading));
     const TickType_t firstReceived = reading.receivedAt;
+    const int64_t firstReceivedUs = reading.receivedAtUs;
     now = 1000;
     assert(request(body, size) == ESP_OK && writes == 1 && logs == 1);
     assert(cached.receivedAt == firstReceived); ++scenarios;
+    assert(cached.receivedAtUs == firstReceivedUs); ++scenarios;
     char conflict[512]; strcpy(conflict, body);
     char *temperature = strstr(conflict, "\"temperature_c\":"); assert(temperature);
     temperature[strlen("\"temperature_c\":")] = '3';
@@ -275,9 +283,11 @@ int main(int argc, char **argv) {
     sendFail = true;
     assert(request(body, size) == ESP_FAIL && writes == 2 && logs == 2); ++scenarios;
     const TickType_t secondReceived = cached.receivedAt;
+    const int64_t secondReceivedUs = cached.receivedAtUs;
     sendFail = false;
     assert(request(body, size) == ESP_OK && writes == 2 && logs == 2);
     assert(cached.receivedAt == secondReceived); ++scenarios;
+    assert(cached.receivedAtUs == secondReceivedUs); ++scenarios;
     printf("%d HTTP receiver scenarios passed\n", scenarios);
 }
 '''
@@ -291,7 +301,7 @@ def main():
     (BUILD / "sdk_mock.h").write_text(MOCK, encoding="utf-8")
     for name in [
         "freertos/FreeRTOS.h", "freertos/queue.h", "freertos/task.h", "sdkconfig.h",
-        "esp_err.h", "esp_http_server.h", "esp_log.h", "esp_netif.h", "esp_wifi.h", "lwip/sockets.h", "lwip/inet.h",
+        "esp_err.h", "esp_http_server.h", "esp_log.h", "esp_timer.h", "esp_netif.h", "esp_wifi.h", "lwip/sockets.h", "lwip/inet.h",
     ]:
         path = BUILD / name
         path.parent.mkdir(parents=True, exist_ok=True)

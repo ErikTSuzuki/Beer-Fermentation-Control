@@ -13,10 +13,14 @@ iSpindel (ESP8266, STA) -- HTTP/JSON via Wi-Fi --> ESP32 (SoftAP)
 ```
 
 O ESP32 usa `WIFI_MODE_APSTA`: cria uma rede WPA2 local para um iSpindel
-(maximo de um cliente associado) e conecta a interface STA ao roteador.
+(um iSpindel e ate tres dispositivos de configuracao) e conecta a interface
+STA ao roteador. A pagina local de receitas esta em [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md).
+O portal cativo anuncia DNS somente aos clientes desse AP e tenta oferecer
+a pagina de receitas ao conectar; nao altera o DNS externo usado pelo MQTT.
 O iSpindel nao precisa acessar a internet. Nao ha NAT/compartilhamento de
 internet; o proprio ESP32 publica as leituras por MQTT. DS18B20 local,
-tela, RTC e reles continuam usando as tarefas existentes.
+tela e RTC continuam usando as tarefas existentes. Os reles agora pertencem
+a tarefa de controle termico; veja [CONTROLE.md](CONTROLE.md).
 
 AP e STA compartilham um unico radio e o mesmo canal. O SoftAP inicia no
 canal 6 e acompanha automaticamente o canal do roteador ao associar.
@@ -193,7 +197,16 @@ Nao e necessario fixar MAC ou canal no transmissor.
 - Usuario MQTT: token do Ubidots; senha vazia; MQTT 3.1.1, QoS 0,
   `retain=false`, identificador unico baseado no MAC do ESP32.
 - Variaveis: `temperatura-local`, `temperatura-ispindel`, `inclinacao`,
-  `densidade` e `bateria`. A densidade inclui unidade e sensor no contexto.
+  `densidade`, `bateria`, `temperatura-alvo`, `estado-controle`,
+  `etapa-fermentacao`, `dias-etapa` e `dias-max-etapa`. A densidade
+  inclui unidade e sensor no contexto. O estado do controle inclui habilitacao,
+  validade do sensor, comandos dos reles e espera restante; os codigos estao
+  em [CONTROLE.md](CONTROLE.md). O estado pode ser publicado mesmo sem
+  leituras validas dos sensores; estados com mais de dois segundos sao omitidos.
+- A etapa inclui nomes da receita/etapa, estado, motivo, disponibilidade da
+  densidade e gravacao do progresso no contexto. Estados de receita com mais
+  de 2,5 segundos sao omitidos. Veja [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md)
+  para os campos e orientacoes do monitoramento remoto.
 - Leitura local com mais de 5 s e omitida; iSpindel usa o limite ajustavel
   acima. Nao ha historico offline; cada publicacao usa as ultimas amostras
   ainda validas. A mesma amostra pode aparecer em mais de uma publicacao

@@ -8,6 +8,7 @@
 #include "freertos/queue.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "onewire_bus.h"
 #include "ds18b20.h"
 
@@ -85,6 +86,7 @@ static void localTemperatureTask(void *context) {
 
         sample.valid = result == ESP_OK;
         sample.sampledAt = xTaskGetTickCount();
+        sample.sampledAtUs = esp_timer_get_time();
         xQueueOverwrite(localTemperatureQueue, &sample);
         char timestamp[32];
         rtc_clock_timestamp(timestamp, sizeof(timestamp));

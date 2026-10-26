@@ -2,11 +2,14 @@
 #define LOCAL_TEMPERATURE_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "freertos/FreeRTOS.h"
 
 typedef struct {
     float temperatureC;
     TickType_t sampledAt;
+    // Relogio monotono de 64 bits para validade do controle em lotes longos.
+    int64_t sampledAtUs;
     bool valid;
 } LocalTemperature;
 
