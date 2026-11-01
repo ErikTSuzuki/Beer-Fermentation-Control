@@ -6,7 +6,11 @@
 
 #define BREW_MAGIC UINT32_C(0x42525731)
 #define BREW_VERSION ((uint8_t)1)
+// Canal inicial do SoftAP; AP+STA acompanha o canal da rede externa.
 #define BREW_CHANNEL ((uint8_t)6)
+#define BREW_HTTP_PORT UINT16_C(80)
+#define BREW_HTTP_PATH "/ispindel"
+#define BREW_HTTP_BODY_MAX 512
 
 typedef enum {
     BREW_TELEMETRY = 1,

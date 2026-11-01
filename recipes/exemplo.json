@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Exemplo 20-12-3 C",
+  "gravity_unit": "sg",
+  "gravity_confirm_samples": 3,
+  "on_complete": "hold",
+  "steps": [
+    {
+      "name": "Fermentacao inicial",
+      "target_c": 20,
+      "max_days": 5,
+      "gravity_limit": 1.020
+    },
+    {
+      "name": "Etapa intermediaria",
+      "target_c": 12,
+      "max_days": 5,
+      "gravity_limit": 1.010
+    },
+    {
+      "name": "Manutencao final",
+      "target_c": 3,
+      "max_days": 10,
+      "gravity_limit": null
+    }
+  ]
+}

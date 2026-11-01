@@ -2,12 +2,19 @@
 #include "RtcConfig.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include "sdkconfig.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+#include "WifiStation.h"
+#include "esp_netif_sntp.h"
+#endif
 
 static const char *TAG = "RTC";
 static const int TIMEOUT_MS = 100;
@@ -19,6 +26,9 @@ typedef struct {
 } Sample;
 static QueueHandle_t samples = NULL;
 static i2c_master_dev_handle_t device = NULL;
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+static QueueHandle_t syncRequests = NULL;
+#endif
 
 static bool valid(const DateTime *t) {
     if (t->year < 2000 || t->year > 2099 || t->month < 1 || t->month > 12 ||
@@ -67,23 +77,14 @@ static esp_err_t readTime(DateTime *t, bool *needsSetting) {
     return ESP_OK;
 }
 
-static esp_err_t setBuildTime(void) {
-    char month[4] = {0};
-    DateTime t = {0};
-    if (sscanf(__DATE__, "%3s %d %d", month, &t.day, &t.year) != 3 ||
-        sscanf(__TIME__, "%d:%d:%d", &t.hour, &t.minute, &t.second) != 3)
-        return ESP_ERR_INVALID_ARG;
-    const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    const char *found = strstr(months, month);
-    if (!found) return ESP_ERR_INVALID_ARG;
-    t.month = (int)(found - months) / 3 + 1;
-    if (!valid(&t)) return ESP_ERR_INVALID_ARG;
+static esp_err_t setTime(const DateTime *t) {
+    if (!valid(t)) return ESP_ERR_INVALID_ARG;
     // Dia da semana: domingo=1, conforme convencao adotada aqui.
     static const int offsets[] = {0,3,2,5,0,3,5,1,4,6,2,4};
-    const int y = t.year - (t.month < 3);
-    const int weekday = (y + y/4 - y/100 + y/400 + offsets[t.month-1] + t.day) % 7 + 1;
-    const uint8_t data[] = {0, toBcd(t.second), toBcd(t.minute), toBcd(t.hour),
-        (uint8_t)(weekday), toBcd(t.day), toBcd(t.month), toBcd(t.year - 2000)};
+    const int y = t->year - (t->month < 3);
+    const int weekday = (y + y/4 - y/100 + y/400 + offsets[t->month-1] + t->day) % 7 + 1;
+    const uint8_t data[] = {0, toBcd(t->second), toBcd(t->minute), toBcd(t->hour),
+        (uint8_t)(weekday), toBcd(t->day), toBcd(t->month), toBcd(t->year - 2000)};
     esp_err_t result = i2c_master_transmit(device, data, sizeof(data), TIMEOUT_MS);
     if (result != ESP_OK) return result;
     uint8_t control = 0;
@@ -97,7 +98,20 @@ static esp_err_t setBuildTime(void) {
     result = readRegisters(0x0F, &status, 1);
     if (result != ESP_OK) return result;
     const uint8_t clearOsf[] = {0x0F, (uint8_t)(status & ~0x80)};
-    result = i2c_master_transmit(device, clearOsf, sizeof(clearOsf), TIMEOUT_MS);
+    return i2c_master_transmit(device, clearOsf, sizeof(clearOsf), TIMEOUT_MS);
+}
+
+static esp_err_t setBuildTime(void) {
+    char month[4] = {0};
+    DateTime t = {0};
+    if (sscanf(__DATE__, "%3s %d %d", month, &t.day, &t.year) != 3 ||
+        sscanf(__TIME__, "%d:%d:%d", &t.hour, &t.minute, &t.second) != 3)
+        return ESP_ERR_INVALID_ARG;
+    const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    const char *found = strstr(months, month);
+    if (!found) return ESP_ERR_INVALID_ARG;
+    t.month = (int)(found - months) / 3 + 1;
+    const esp_err_t result = setTime(&t);
     if (result == ESP_OK) {
         ESP_LOGW(TAG, "RTC sem hora valida: ajustado para COMPILACAO %s %s. "
                  "Horario aproximado; inclui atraso ate a gravacao. Fuso do computador.",
@@ -106,10 +120,72 @@ static esp_err_t setBuildTime(void) {
     return result;
 }
 
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+static void onNetworkTime(struct timeval *tv) {
+    (void)tv;
+    // Callback de rede apenas sinaliza. Todo acesso I2C fica na tarefa do RTC.
+    const bool pending = true;
+    xQueueOverwrite(syncRequests, &pending);
+}
+
+static esp_err_t setNetworkTime(void) {
+    const time_t now = time(NULL);
+    struct tm local;
+    if (!localtime_r(&now, &local)) return ESP_ERR_INVALID_STATE;
+    const DateTime t = {local.tm_year + 1900, local.tm_mon + 1, local.tm_mday,
+                        local.tm_hour, local.tm_min, local.tm_sec};
+    const esp_err_t result = setTime(&t);
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "RTC sincronizado por NTP (Brasilia): %04d-%02d-%02d %02d:%02d:%02d",
+                 t.year, t.month, t.day, t.hour, t.minute, t.second);
+    }
+    return result;
+}
+#endif
+
 static void clockTask(void *context) {
     (void)context;
     esp_err_t previous = ESP_OK;
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+    bool ntpInitialized = false, ntpRunning = false, wasConnected = false, syncPending = false;
+    bool attemptedNtp = false;
+    TickType_t lastNtpAttempt = 0;
+    esp_err_t previousSync = ESP_OK;
+#endif
     for (;;) {
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+        const bool connected = wifi_station_is_connected();
+        if (syncRequests && connected && (!wasConnected || (!ntpRunning &&
+            (!attemptedNtp || xTaskGetTickCount() - lastNtpAttempt >= pdMS_TO_TICKS(60000))))) {
+            lastNtpAttempt = xTaskGetTickCount();
+            attemptedNtp = true;
+            esp_err_t result;
+            if (ntpInitialized) {
+                result = esp_netif_sntp_start();
+            } else {
+                esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(RTC_NTP_SERVER);
+                config.wait_for_sync = false;
+                config.sync_cb = onNetworkTime;
+                result = esp_netif_sntp_init(&config);
+                if (result == ESP_OK) ntpInitialized = true;
+            }
+            ntpRunning = result == ESP_OK;
+            if (result == ESP_OK) ESP_LOGI(TAG, "Sincronizacao NTP iniciada: %s", RTC_NTP_SERVER);
+            else ESP_LOGW(TAG, "Falha ao iniciar NTP: %s", esp_err_to_name(result));
+        }
+        wasConnected = connected;
+        bool requested;
+        if (syncRequests && xQueueReceive(syncRequests, &requested, 0) == pdTRUE) syncPending = true;
+        if (syncPending) {
+            const esp_err_t result = setNetworkTime();
+            if (result == ESP_OK) syncPending = false;
+            else if (result != previousSync) {
+                ESP_LOGW(TAG, "Falha ao gravar hora NTP no RTC: %s; nova tentativa em 1 s",
+                         esp_err_to_name(result));
+            }
+            previousSync = result;
+        }
+#endif
         Sample sample = {0};
         bool needsSetting = false;
         esp_err_t result = readTime(&sample.time, &needsSetting);
@@ -138,6 +214,17 @@ void rtc_clock_start(void) {
         ESP_LOGE(TAG, "Falha ao criar fila do RTC");
         return;
     }
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+    // TZ e configurado antes de iniciar o cliente SNTP e suas notificacoes.
+    syncRequests = xQueueCreate(1, sizeof(bool));
+    if (!syncRequests || setenv("TZ", RTC_TIMEZONE, 1) != 0) {
+        ESP_LOGW(TAG, "NTP indisponivel; mantendo apenas o relogio do modulo RTC");
+        if (syncRequests) vQueueDelete(syncRequests);
+        syncRequests = NULL;
+    } else {
+        tzset();
+    }
+#endif
     i2c_master_bus_config_t config = {0};
     config.i2c_port = I2C_NUM_0;
     config.sda_io_num = RTC_SDA;
@@ -164,6 +251,10 @@ void rtc_clock_start(void) {
         device = NULL;
         vQueueDelete(samples);
         samples = NULL;
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && RTC_SYNC_FROM_NTP
+        if (syncRequests) vQueueDelete(syncRequests);
+        syncRequests = NULL;
+#endif
         return;
     }
     ESP_LOGI(TAG, "DS3232M: SDA=GPIO%d SCL=GPIO%d endereco=0x68",

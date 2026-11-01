@@ -1,0 +1,196 @@
+menu "Beer Monitor - Wi-Fi and iSpindel"
+
+    config BEER_AP_SSID
+        string "Local Wi-Fi SSID for iSpindel"
+        default "BeerMonitor"
+
+    config BEER_AP_PASSWORD
+        string "Local Wi-Fi password (8-63 characters)"
+        default "beer-monitor"
+        help
+            WPA2 password used only by the iSpindel link. Configure the same
+            SSID/password in the iSpindel portal. Change the example password.
+
+    config BEER_AP_IP
+        string "Local AP IPv4 address (/24 subnet)"
+        default "192.168.50.1"
+        help
+            Choose a subnet different from the external router subnet.
+            The iSpindel obtains its IP and the receiver address via DHCP.
+
+    config BEER_ISPINDEL_STALE_SECONDS
+        int "Maximum age of an iSpindel reading (seconds)"
+        range 35 86400
+        default 1800
+        help
+            Used by the display and cloud publishing. Set longer than the
+            iSpindel sleep interval; 1800 s supports the default 900 s interval.
+
+    config BEER_WIFI_UPLINK_ENABLED
+        bool "Connect to an external Wi-Fi network"
+        default y
+
+    if BEER_WIFI_UPLINK_ENABLED
+
+    config BEER_WIFI_SSID
+        string "External Wi-Fi SSID (2.4 GHz)"
+        default ""
+        help
+            Only the ESP32 connects to this network. Its local AP follows
+            the external channel automatically. The iSpindel connects to
+            the local AP and rediscovers its channel on each wake cycle.
+
+    config BEER_WIFI_PASSWORD
+        string "External Wi-Fi password"
+        default ""
+        help
+            Personal mode: shared network key. Enterprise mode: user password.
+
+    config BEER_WIFI_ENTERPRISE
+        bool "Use WPA2-Enterprise (Wi-Fi with username and password)"
+        default n
+        help
+            Enable for institutional 802.1X networks using PEAP/TTLS.
+            Leave disabled for a home network using a shared password.
+            This is not a browser/captive-portal login.
+
+    config BEER_WIFI_USERNAME
+        string "Wi-Fi Enterprise username" if BEER_WIFI_ENTERPRISE
+        default ""
+
+    config BEER_WIFI_IDENTITY
+        string "Wi-Fi Enterprise identity (empty = username)" if BEER_WIFI_ENTERPRISE
+        default ""
+
+    endif
+endmenu
+
+menu "Beer Monitor - Temperature control"
+
+    config BEER_CONTROL_ENABLED
+        bool "Enable temperature control at boot"
+        default y
+        help
+            Controls the local DS18B20 temperature, independently of Wi-Fi,
+            RTC, iSpindel and cloud availability. Both outputs start off.
+
+    config BEER_CONTROL_TARGET_CENTIC
+        int "Initial target temperature (hundredths of Celsius)"
+        range -500 4000
+        default 1800
+        help
+            1800 means 18.00 C. Target +/- differentials must fit inside the
+            minimum/maximum limits below. Invalid combinations keep outputs off.
+
+    config BEER_CONTROL_HEATING_DIFF_CENTIC
+        int "Heating differential (hundredths of Celsius)"
+        range 10 500
+        default 50
+
+    config BEER_CONTROL_COOLING_DIFF_CENTIC
+        int "Cooling differential (hundredths of Celsius)"
+        range 10 500
+        default 50
+
+    config BEER_CONTROL_COMPRESSOR_OFF_SECONDS
+        int "Minimum compressor off time, including boot (seconds)"
+        range 60 3600
+        default 300
+        help
+            Set according to the refrigerator manufacturer. Never bypassed by
+            target changes, sensor recovery or disabling/re-enabling control.
+
+    config BEER_CONTROL_CHANGEOVER_SECONDS
+        int "Both outputs off before switching heating/cooling (seconds)"
+        range 1 300
+        default 30
+
+    config BEER_CONTROL_SENSOR_MAX_AGE_MS
+        int "Maximum age of the local temperature sample (milliseconds)"
+        range 3000 10000
+        default 5000
+        help
+            Invalid, missing, out-of-range or expired samples turn both relays
+            off. Valid samples automatically restore control with all delays.
+
+    config BEER_CONTROL_MIN_CENTIC
+        int "Minimum valid process temperature (hundredths of Celsius)"
+        range -5500 12500
+        default -500
+
+    config BEER_CONTROL_MAX_CENTIC
+        int "Maximum valid process temperature (hundredths of Celsius)"
+        range -5500 12500
+        default 4000
+endmenu
+
+menu "Beer Monitor - Local recipe interface"
+    config BEER_CAPTIVE_PORTAL_ENABLED
+        bool "Offer recipe page when a device joins the local Wi-Fi"
+        default y
+        help
+            Local AP DNS and HTTP captive portal probes. The operating system
+            may open the page or offer a sign-in notification. Direct access
+            by IP always remains available. No HTTPS interception, internet
+            forwarding, or changes to the STA DNS used for cloud publishing.
+
+    config BEER_LOCAL_UI_PASSWORD
+        string "Local interface password (empty = local AP Wi-Fi password)"
+        default ""
+        help
+            8-63 characters. Used only on the local AP interface, never sent
+            to Ubidots or logged. Empty uses BEER_AP_PASSWORD. This HTTP UI
+            relies on the protected local WPA2 network and rejects requests
+            from the uplink, foreign origins and unrelated Host headers.
+endmenu
+
+menu "Beer Monitor - Fermentation recipe"
+    config BEER_RECIPE_START_EMBEDDED
+        bool "Start embedded recipes/exemplo.json when no saved run exists"
+        default n
+        help
+            Explicit opt-in for the example recipe. Existing running/completed/
+            cancelled runs in NVS take precedence. A saved active run resumes
+            regardless of this option. Recipe time counts powered operation,
+            starting at entry to each step; maximum days always overrides
+            absent, invalid or unchanged gravity. Final temperature is held.
+endmenu
+
+menu "Beer Monitor - Ubidots STEM"
+
+    config BEER_UBIDOTS_ENABLED
+        bool "Enable Ubidots MQTT telemetry"
+        depends on BEER_WIFI_UPLINK_ENABLED
+        default y
+        help
+            Sends sensor readings over MQTT/TCP port 1883, without TLS, like
+            the Arduino example. Empty credentials keep
+            the receiver running locally without attempting cloud connections.
+
+    if BEER_UBIDOTS_ENABLED
+
+    config BEER_UBIDOTS_TOKEN
+        string "Ubidots STEM token"
+        default ""
+        help
+            Copy the token from API Credentials in your STEM account.
+            Stored in the local sdkconfig and firmware; never logged.
+
+    config BEER_UBIDOTS_DEVICE_LABEL
+        string "Ubidots device API label"
+        default "beer-monitor"
+        help
+            Use lowercase letters, digits, hyphens and underscores only.
+            Use a different label for each physical monitor.
+
+    config BEER_UBIDOTS_INTERVAL_SECONDS
+        int "Interval between upload attempts (seconds)"
+        range 120 86400
+        default 300
+        help
+            Ten variables every 300 seconds consume about 2880 dots/day.
+            Check your account allowance before reducing this interval.
+            Publish errors also wait this interval. QoS 0, retain disabled.
+
+    endif
+endmenu

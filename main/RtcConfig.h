@@ -11,5 +11,10 @@
 // Somente se o RTC perdeu a hora (OSF) ou possui calendario invalido.
 // Hora aproximada, no fuso do computador que compila; nunca reajusta RTC valido.
 #define RTC_INITIALIZE_FROM_BUILD_TIME true
+// NTP fornece UTC; o modulo e a tela guardam/exibem horario de Brasilia.
+// Formato POSIX: BRT3 significa UTC-03:00, sem horario de verao.
+#define RTC_SYNC_FROM_NTP true
+#define RTC_NTP_SERVER "pool.ntp.org"
+#define RTC_TIMEZONE "BRT3"
 
 #endif
