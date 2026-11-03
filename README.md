@@ -32,9 +32,12 @@ iSpindel ── Wi-Fi/HTTP ──> ESP32 + receitas      interface / potência e
 
 ## Hardware e pinagem atual
 
-Base: ESP32 clássico, DS18B20 alimentado em 3,3 V, display MAR2406 paralelo
-de 8 bits, RTC compatível com o driver DS3232M e interface para dois comandos
-de relé. Confira o modelo e a pinagem dos módulos físicos antes de montar.
+Base: ESP32 clássico, DS18B20 alimentado em 3,3 V, display paralelo de 8 bits
+configurado como MAR2406/ILI9341 e interface para dois comandos de relé.
+As fotos do protótipo mostram um **ESP32 DEVKIT V1 com 30 pinos** e um
+**RTC HW-084 com CI marcado DS3231M e EEPROM 24C32N**. A documentação anterior
+e as mensagens do firmware citam DS3232M; não confunda esse nome com a marcação
+da peça fotografada. Confira a revisão e a pinagem dos módulos antes de montar.
 
 | Função | ESP32 / conexão |
 |---|---|

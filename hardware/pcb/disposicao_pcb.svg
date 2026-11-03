@@ -7,7 +7,7 @@
 <rect x="0" y="0" width="1600" height="9" rx="0" fill="#206d60" stroke="none" />
 <text x="60" y="61" font-size="18" fill="#206d60" font-weight="700" text-anchor="start" >CERVEJA MONITOR</text>
 <text x="60" y="112" font-size="41" fill="#172e3b" font-weight="700" text-anchor="start" >Tela na frente. Controle no verso.</text>
-<text x="60" y="145" font-size="19" fill="#536977" font-weight="400" text-anchor="start" >Proposta para placa base com módulos removíveis • baixa tensão • contorno inicial de 100 × 80 mm</text>
+<text x="60" y="145" font-size="19" fill="#536977" font-weight="400" text-anchor="start" >Revisão pelas fotos • módulos removíveis • medidas nominais pesquisadas • base inicial de 100 × 80 mm</text>
 <rect x="1300" y="43" width="240" height="41" rx="10" fill="#f4e7c4" stroke="none" />
 <text x="1420" y="70" font-size="15" fill="#7e5e20" font-weight="700" text-anchor="middle" >CONCEITO · NÃO FABRICAR</text>
 <text x="90" y="197" font-size="23" fill="#172e3b" font-weight="700" text-anchor="start" >01  FRENTE</text>
@@ -36,11 +36,7 @@
 <text x="50.1" y="52.1" font-size="2.4" fill="#9cceb8" font-weight="400" text-anchor="middle" >ALVO 18,0 °C</text>
 <text x="50.1" y="59.1" font-size="2.5" fill="#cfb677" font-weight="700" text-anchor="middle" >FERMENTAÇÃO</text>
 <text x="50.1" y="63.3" font-size="1.8" fill="#8caaaf" font-weight="400" text-anchor="middle" >dados ilustrativos da tela</text>
-<text x="50" y="73.1" font-size="2.2" fill="#ffe8e2" font-weight="600" text-anchor="middle" >MAR2406  •  PCB 72,20 × 52,70 mm</text>
-<circle cx="17" cy="27" r="0.65" fill="#f5d9b3" stroke="none" stroke-width="1"/>
-<circle cx="83" cy="27" r="0.65" fill="#f5d9b3" stroke="none" stroke-width="1"/>
-<circle cx="17" cy="71" r="0.65" fill="#f5d9b3" stroke="none" stroke-width="1"/>
-<circle cx="83" cy="71" r="0.65" fill="#f5d9b3" stroke="none" stroke-width="1"/>
+<text x="50" y="73.1" font-size="2.2" fill="#ffe8e2" font-weight="600" text-anchor="middle" >TFT 2,4”  •  referência MAR2406 72,20 × 52,70 mm</text>
 <text x="50" y="20" font-size="2.2" fill="#d3e4d5" font-weight="400" text-anchor="middle" >Apoio e conectores a conferir no módulo real</text>
 </g>
 <line x1="90" y1="794" x2="690" y2="794" stroke="#70818c" stroke-width="1" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
@@ -64,100 +60,73 @@
 <rect x="13.8" y="23" width="72.2" height="52.7" rx="0" fill="none" stroke="#abc8bc" stroke-width=".3" stroke-dasharray="1.3 1"/>
 <text x="19" y="47" font-size="1.85" fill="#abc8bc" font-weight="400" text-anchor="start" >PROJEÇÃO</text>
 <text x="19" y="50" font-size="1.85" fill="#abc8bc" font-weight="400" text-anchor="start" >DA TELA</text>
-<rect x="36" y="-7" width="28" height="56" rx="0.8" fill="#173241" stroke="#839fa0" stroke-width=".3"/>
-<rect x="37" y="-7" width="26" height="7" rx="0" fill="#b5aa66" stroke="none" />
+<g id="esp32-30-pinos">
+<rect x="36" y="-7" width="28" height="52" rx="0.5" fill="#173241" stroke="#839fa0" stroke-width=".3"/>
+<rect x="37" y="-7" width="26" height="7" rx="0.5" fill="#b5aa66" />
 <path d="M39 -2 V-5 H42 V-2 H45 V-5 H48 V-2 H51 V-5 H54 V-2 H57 V-5 H61" fill="none" stroke="#284d47" stroke-width=".7"/>
 <rect x="40" y="3" width="20" height="24" rx="0.5" fill="#b9c6c4" stroke="#e4ebe1" stroke-width=".25"/>
-<text x="50" y="13" font-size="3.4" fill="#213b43" font-weight="700" text-anchor="middle" >ESP32</text>
-<text x="50" y="18" font-size="2.6" fill="#213b43" font-weight="600" text-anchor="middle" >DevKit</text>
-<rect x="37.6" y="5" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="5.625" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="7.54" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="8.165" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="10.08" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="10.705" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="12.620000000000001" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="13.245000000000001" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="15.16" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="15.785" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="17.7" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="18.325" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="20.240000000000002" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="20.865000000000002" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="22.78" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="23.405" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="25.32" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="25.945" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="27.86" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="28.485" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="30.4" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="31.025" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="32.94" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="33.565" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="35.480000000000004" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="36.105000000000004" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="38.02" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="38.645" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="40.56" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="41.185" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="37.6" y="43.1" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="38.225" cy="43.725" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="5" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="5.625" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="7.54" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="8.165" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="10.08" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="10.705" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="12.620000000000001" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="13.245000000000001" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="15.16" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="15.785" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="17.7" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="18.325" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="20.240000000000002" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="20.865000000000002" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="22.78" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="23.405" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="25.32" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="25.945" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="27.86" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="28.485" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="30.4" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="31.025" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="32.94" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="33.565" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="35.480000000000004" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="36.105000000000004" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="38.02" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="38.645" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="40.56" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="41.185" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="61.2" y="43.1" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="61.825" cy="43.725" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="46" y="32" width="8" height="8" rx="0" fill="#0c171c" stroke="none" />
-<rect x="41" y="44" width="4" height="2" rx="0" fill="#b5c4bd" stroke="none" />
-<rect x="55" y="44" width="4" height="2" rx="0" fill="#b5c4bd" stroke="none" />
-<text x="50" y="42" font-size="1.6" fill="#c6d8d3" font-weight="400" text-anchor="middle" >BOOT / EN</text>
-<rect x="43" y="48" width="14" height="7" rx="0.5" fill="#c5d0d0" stroke="#76978d" stroke-width=".25"/>
-<rect x="45" y="51" width="10" height="3" rx="0" fill="#4e5c60" stroke="none" />
-<rect x="40" y="55" width="20" height="25" rx="0" fill="#264c49" stroke="#7fa699" stroke-width=".25" stroke-dasharray="1 1"/>
-<text x="50" y="62" font-size="2" fill="#d5e4da" font-weight="600" text-anchor="middle" >CORREDOR</text>
-<text x="50" y="66" font-size="2" fill="#d5e4da" font-weight="600" text-anchor="middle" >DO USB</text>
-<line x1="50" y1="69" x2="50" y2="77" stroke="#9ec2b4" stroke-width="0.5" />
-<path d="M48 75 L50 78 L52 75" fill="none" stroke="#9ec2b4" stroke-width=".5"/>
-<rect x="73" y="27" width="19" height="22" rx="0.6" fill="#2d5b8a" stroke="#809db9" stroke-width=".25"/>
-<text x="82.5" y="31" font-size="2.8" fill="#eef3f0" font-weight="700" text-anchor="middle" >RTC</text>
-<circle cx="82.5" cy="39.4" r="6.1" fill="#c2cecf" stroke="#e6eee8" stroke-width="0.3"/>
-<text x="82.5" y="40.2" font-size="1.5" fill="#344d57" font-weight="600" text-anchor="middle" >BATERIA</text>
-<rect x="74.8" y="46" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="75.425" cy="46.625" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="78.3" y="46" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="78.925" cy="46.625" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="81.8" y="46" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="82.425" cy="46.625" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<rect x="85.3" y="46" width="1.25" height="1.25" rx="0" fill="#d8b369" stroke="none" />
-<circle cx="85.925" cy="46.625" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
-<text x="82.5" y="53" font-size="2.2" fill="#d0e3d5" font-weight="400" text-anchor="middle" >GPIO5 / 15</text>
+<text x="50" y="12" font-size="3.4" fill="#213b43" text-anchor="middle" font-weight="700">ESP32</text>
+<text x="50" y="17" font-size="2.4" fill="#213b43" text-anchor="middle" font-weight="600">DEVKIT V1</text>
+<text x="50" y="22" font-size="2.2" fill="#213b43" text-anchor="middle" font-weight="700">30 PINOS</text>
+<rect x="36.675" y="0" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="0.625" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="2.54" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="3.165" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="5.08" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="5.705" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="7.62" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="8.245000000000001" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="10.16" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="10.785" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="12.7" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="13.325" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="15.24" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="15.865" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="17.78" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="18.405" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="20.32" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="20.945" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="22.86" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="23.485" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="25.4" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="26.025" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="27.94" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="28.565" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="30.48" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="31.105" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="33.02" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="33.645" r="0.22" fill="#223b3b" />
+<rect x="36.675" y="35.56" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="37.3" cy="36.185" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="0" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="0.625" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="2.54" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="3.165" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="5.08" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="5.705" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="7.62" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="8.245000000000001" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="10.16" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="10.785" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="12.7" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="13.325" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="15.24" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="15.865" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="17.78" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="18.405" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="20.32" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="20.945" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="22.86" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="23.485" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="25.4" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="26.025" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="27.94" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="28.565" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="30.48" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="31.105" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="33.02" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="33.645" r="0.22" fill="#223b3b" />
+<rect x="62.075" y="35.56" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="62.7" cy="36.185" r="0.22" fill="#223b3b" />
+<rect x="46" y="31" width="8" height="7" rx="0.5" fill="#0c171c" />
+<rect x="41" y="40" width="4" height="2" rx="0.5" fill="#b5c4bd" />
+<rect x="55" y="40" width="4" height="2" rx="0.5" fill="#b5c4bd" />
+<text x="50" y="39" font-size="1.65" fill="#c6d8d3" text-anchor="middle" font-weight="400">EN / BOOT</text>
+<rect x="43" y="44" width="14" height="7" rx="0.5" fill="#c5d0d0" stroke="#76978d" stroke-width=".25"/>
+<rect x="45" y="47" width="10" height="3" rx="0.5" fill="#4e5c60" />
+</g>
+<rect x="40" y="51" width="20" height="29" rx="0.5" fill="#264c49" stroke="#7fa699" stroke-width=".25" stroke-dasharray="1 1"/>
+<text x="50" y="61" font-size="2" fill="#d5e4da" text-anchor="middle" font-weight="600">CORREDOR</text>
+<text x="50" y="65" font-size="2" fill="#d5e4da" text-anchor="middle" font-weight="600">DO USB</text>
+<path d="M50 69 V77 M48 75 L50 78 L52 75" fill="none" stroke="#9ec2b4" stroke-width=".5"/>
+<g id="rtc-hw084-ds3231m">
+<rect x="73" y="18" width="22" height="38" rx="0.5" fill="#2d5b8a" stroke="#809db9" stroke-width=".25"/>
+<text x="84" y="20.8" font-size="1.9" fill="#eef3f0" text-anchor="middle" font-weight="700">HW-084</text>
+<rect x="77" y="22" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="77.625" cy="22.625" r="0.22" fill="#223b3b" />
+<rect x="79.54" y="22" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="80.165" cy="22.625" r="0.22" fill="#223b3b" />
+<rect x="82.08" y="22" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="82.705" cy="22.625" r="0.22" fill="#223b3b" />
+<rect x="84.62" y="22" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="85.245" cy="22.625" r="0.22" fill="#223b3b" />
+<rect x="87.16" y="22" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="87.785" cy="22.625" r="0.22" fill="#223b3b" />
+<rect x="89.7" y="22" width="1.25" height="1.25" rx="0.5" fill="#d8b369" /><circle cx="90.325" cy="22.625" r="0.22" fill="#223b3b" />
+<circle cx="84" cy="44" r="9" fill="none" stroke="#a5bcc3" stroke-width=".3" stroke-dasharray="1 1"/>
+<rect x="77" y="27" width="14" height="9" rx="0.5" fill="#142932" />
+<text x="84" y="32.7" font-size="1.9" fill="#e0e8e1" text-anchor="middle" font-weight="700">DS3231M</text>
+<rect x="80" y="39" width="8" height="6" rx="0.5" fill="#142932" />
+<text x="84" y="43" font-size="1.5" fill="#eef3e8" text-anchor="middle" font-weight="400">24C32</text>
+<text x="84" y="51" font-size="1.8" fill="#d8e3df" text-anchor="middle" font-weight="600">BATERIA</text>
+<text x="84" y="54" font-size="1.7" fill="#d8e3df" text-anchor="middle" font-weight="400">sob o módulo</text>
+<text x="84" y="16.2" font-size="2" fill="#d0e3d5" text-anchor="middle" font-weight="400">SDA5 / SCL15</text>
+</g>
 <rect x="0" y="30" width="12" height="14" rx="0.4" fill="#b6c6bf" stroke="#e2e9e0" stroke-width=".2"/>
 <circle cx="6" cy="32.5" r="1.25" fill="#3c5554" stroke="none" stroke-width="1"/>
 <circle cx="6" cy="37" r="1.25" fill="#3c5554" stroke="none" stroke-width="1"/>
@@ -179,7 +148,7 @@
 <circle cx="26.825" cy="21.825" r="0.22" fill="#223b3b" stroke="none" stroke-width="1"/>
 <text x="22" y="28.5" font-size="2" fill="#e0e6d5" font-weight="600" text-anchor="middle" >J_LCD</text>
 <line x1="29" y1="22" x2="34" y2="22" stroke="#88c5d0" stroke-width="1.4" />
-<text x="21" y="17.2" font-size="1.7" fill="#cae5dc" font-weight="400" text-anchor="middle" >adaptador / chicote</text>
+<text x="21" y="17.2" font-size="1.7" fill="#cae5dc" font-weight="400" text-anchor="middle" >dados + controle / chicote</text>
 <rect x="0" y="57" width="11" height="11" rx="0.5" fill="#8aa7ab" stroke="#e0e7dc" stroke-width=".2"/>
 <circle cx="5.5" cy="60.2" r="1.4" fill="#314e54" stroke="none" stroke-width="1"/>
 <circle cx="5.5" cy="65" r="1.4" fill="#314e54" stroke="none" stroke-width="1"/>
@@ -204,7 +173,7 @@
 <line x1="1287" y1="260" x2="1312" y2="260" stroke="#75612e" stroke-width="1" />
 <text x="1410" y="265" font-size="15" fill="#75612e" font-weight="600" text-anchor="middle" >antena além da borda</text>
 <text x="900" y="801" font-size="16" fill="#536977" font-weight="400" text-anchor="start" >Pontilhado: tela na face oposta. Blocos: envelopes aproximados.</text>
-<text x="900" y="828" font-size="16" fill="#536977" font-weight="400" text-anchor="start" >Conectores e pinos físicos ainda precisam de medição.</text>
+<text x="900" y="828" font-size="16" fill="#536977" font-weight="400" text-anchor="start" >ESP32 ref. 52 × 28 mm · RTC ref. 38 × 22 mm (girado).</text>
 <text x="90" y="842" font-size="18" fill="#172e3b" font-weight="600" text-anchor="start" >A tela ocupa uma face; os módulos ficam na outra.</text>
 <text x="90" y="868" font-size="17" fill="#536977" font-weight="400" text-anchor="start" >Fixação própria e espaçadores evitam esforço nos headers.</text>
 <line x1="60" y1="902" x2="1540" y2="902" stroke="#ced6ce" stroke-width="1" />
@@ -230,23 +199,31 @@
 <text x="212" y="1124" font-size="14" fill="#e9f0e7" font-weight="600" text-anchor="middle" >ESP32</text>
 <text x="354" y="1119" font-size="12" fill="#e9f0e7" font-weight="600" text-anchor="middle" >RTC</text>
 <text x="460" y="1132" font-size="17" fill="#536977" font-weight="400" text-anchor="start" >módulos no verso + acesso de serviço</text>
-<text x="900" y="945" font-size="23" fill="#172e3b" font-weight="700" text-anchor="start" >CRITÉRIOS DA PROPOSTA</text>
-<circle cx="916" cy="989" r="14" fill="#dce7da" stroke="none" stroke-width="1"/>
-<text x="916" y="994" font-size="12" fill="#206d60" font-weight="700" text-anchor="middle" >01</text>
-<text x="945" y="995" font-size="17" fill="#304b56" font-weight="500" text-anchor="start" >Antena livre nas duas faces e na caixa.</text>
-<circle cx="916" cy="1032" r="14" fill="#dce7da" stroke="none" stroke-width="1"/>
-<text x="916" y="1037" font-size="12" fill="#206d60" font-weight="700" text-anchor="middle" >02</text>
-<text x="945" y="1038" font-size="17" fill="#304b56" font-weight="500" text-anchor="start" >Barramento da TFT curto e GND contínuo.</text>
-<circle cx="916" cy="1075" r="14" fill="#dce7da" stroke="none" stroke-width="1"/>
-<text x="916" y="1080" font-size="12" fill="#206d60" font-weight="700" text-anchor="middle" >03</text>
-<text x="945" y="1081" font-size="17" fill="#304b56" font-weight="500" text-anchor="start" >Saídas desligadas durante reset e gravação.</text>
-<circle cx="916" cy="1118" r="14" fill="#dce7da" stroke="none" stroke-width="1"/>
-<text x="916" y="1123" font-size="12" fill="#206d60" font-weight="700" text-anchor="middle" >04</text>
-<text x="945" y="1124" font-size="17" fill="#304b56" font-weight="500" text-anchor="start" >127/220 V e corrente do motor fora desta PCB.</text>
+<text x="900" y="945" font-size="23" fill="#172e3b" text-anchor="start" font-weight="700">04  RELÉS EM CONJUNTO SEPARADO</text>
+<rect x="910" y="980" width="170" height="123" rx="0.5" fill="#226a96" stroke="#87a6b2" stroke-width="1"/>
+<rect x="925" y="994" width="62" height="55" rx="0.5" fill="#268bc2" />
+<rect x="1001" y="994" width="62" height="55" rx="0.5" fill="#268bc2" />
+<text x="956" y="1014" font-size="12" fill="#eff4ee" text-anchor="middle" font-weight="700">BESTEP</text>
+<text x="1032" y="1014" font-size="12" fill="#eff4ee" text-anchor="middle" font-weight="700">BESTEP</text>
+<text x="956" y="1034" font-size="11" fill="#eef3e8" text-anchor="middle" font-weight="400">RELÉ 1</text>
+<text x="1032" y="1034" font-size="11" fill="#eef3e8" text-anchor="middle" font-weight="400">RELÉ 2</text>
+<rect x="928" y="1065" width="133" height="22" rx="0.5" fill="#9bada8" />
+<circle cx="944" cy="1076" r="4" fill="#335650" />
+<circle cx="978" cy="1076" r="4" fill="#335650" />
+<circle cx="1012" cy="1076" r="4" fill="#335650" />
+<circle cx="1046" cy="1076" r="4" fill="#335650" />
+<path d="M1095 1040 H1214" fill="none" stroke="#70818c" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="1155" y="1012" font-size="14" fill="#536977" text-anchor="middle" font-weight="400">após validar</text>
+<text x="1155" y="1030" font-size="14" fill="#536977" text-anchor="middle" font-weight="400">a interface</text>
+<rect x="1230" y="997" width="270" height="88" rx="0.5" fill="#e1e7dc" stroke="#98afa1" stroke-width="1"/>
+<text x="1365" y="1032" font-size="17" fill="#304b56" text-anchor="middle" font-weight="700">ETAPA PARA MOTOR</text>
+<text x="1365" y="1060" font-size="16" fill="#536977" text-anchor="middle" font-weight="400">selecionada pela carga real</text>
+<text x="900" y="1130" font-size="16" fill="#536977" text-anchor="start" font-weight="400">BESTEP: bobinas marcadas 03VDC; confirmar VCC e seleção H/L.</text>
+<text x="900" y="1157" font-size="16" fill="#536977" text-anchor="start" font-weight="400">Representação funcional sem escala; não é ligação de potência.</text>
 <rect x="60" y="1189" width="1480" height="102" rx="12" fill="#e5e9df" stroke="none" />
 <text x="85" y="1223" font-size="21" fill="#233e46" font-weight="600" text-anchor="start" >O próximo passo é conferir as peças e a caixa, criar o esquemático e só então rotear.</text>
 <text x="85" y="1254" font-size="17" fill="#536977" font-weight="400" text-anchor="start" >Sem footprints conferidos, ERC/DRC ou Gerbers. A figura orienta a disposição e não comprova encaixe ou funcionamento.</text>
-<text x="60" y="1320" font-size="14" fill="#64746d" font-weight="400" text-anchor="start" >FONTES: pinagem do firmware · dimensões da MAR2406 / LCDWiki · orientação de antena / Espressif</text>
+<text x="60" y="1320" font-size="14" fill="#64746d" font-weight="400" text-anchor="start" >FONTES: fotos e firmware · Einstronic / ESP32 · Handsontec / RTC · LCDWiki / TFT · Espressif / antena</text>
 <text x="1540" y="1320" font-size="14" fill="#64746d" font-weight="600" text-anchor="end" >03 NOV 2026</text>
 </g>
 </svg>

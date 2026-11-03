@@ -11,11 +11,45 @@ MAR2406 voltada ao usuário e ESP32, RTC e interfaces no verso. Isso mantém os
 módulos substituíveis e aproveita o firmware existente. A tela deve ter apoio
 mecânico próprio; os conectores não devem sustentar sozinhos a montagem.
 
-O contorno de **100 × 80 mm** é uma hipótese inicial, baseada no contorno do
-arquivo Eagle local existente, ainda sem circuito. O fabricante informa
-**72,20 × 52,70 mm** para a PCB da MAR2406. O espaço restante sugere viabilidade,
-mas não comprova o encaixe: faltam medidas dos módulos, conectores, caixa e
-alturas. Os corpos desenhados são envelopes aproximados, não footprints.
+O contorno de **100 × 80 mm** é uma hipótese inicial de placa base. As medidas
+de referência abaixo permitem estudar o espaço disponível, mas não comprovam
+o encaixe da unidade real: faltam conferir offsets, conectores, caixa e alturas.
+Os corpos desenhados são envelopes de planejamento, não footprints liberados.
+
+## Módulos fotografados e medidas pesquisadas
+
+As fotos fornecidas em 03/11/2026 permitem identificar os itens abaixo. Elas
+não foram usadas para deduzir medidas exatas por perspectiva.
+
+| Item | Identificação visível | Medida adotada no estudo | Evidência e limite |
+|---|---|---|---|
+| ESP32 | ESP32 DEVKIT V1; duas fileiras de 15 pinos; micro-USB; EN/BOOT | 52 × 28 mm; 2 × 15 contatos de passo 2,54 mm; fileiras a 25,4 mm como referência | A Einstronic informa 52 × 28 × 14 mm para sua versão DOIT. A biblioteca Eagle local usa 25,4 mm entre fileiras e passo 2,54 mm. Ainda não há conferência dimensional da unidade fotografada. |
+| RTC | HW-084; CI marcado DS3231M; EEPROM marcada 24C32N; bateria sob a placa | 38 × 22 mm; reservar altura preliminar de 14 mm | A Handsontec documenta 38 × 22 × 14 mm para módulo DS3231 com EEPROM. É referência de uma placa da mesma família, não desenho mecânico certificado do HW-084 fotografado. |
+| TFT | Shield vermelho “2.4 TFT LCD SHIELD”, com headers em lados opostos e slot SD | 72,20 × 52,70 mm, provisoriamente | Dimensão da MAR2406 documentada pela LCDWiki, usada pelo firmware. A inscrição e a foto do verso, sozinhas, não confirmam o controlador nem a revisão mecânica exata. |
+| Relés | Dois BESTEP JQC3F-03VDC-C; marcação 10 A; seleção High/Low | Reservar aproximadamente 51 × 40 × 20 mm no conjunto externo | Ofertas de módulos BESTEP semelhantes variam entre 49 × 37,5 × 17 e 50,5 × 38,5 × 18,5 mm; a reserva é arredondada. Não usar essas medidas para furar a caixa sem conferir. |
+| DS18B20 | Previsto pelo firmware; não identificado nessas fotos | Conector externo de três vias | A pinagem depende do sensor/cabo real, não da cor dos fios. |
+
+Referências de medidas:
+[ESP32 — Einstronic](https://einstronic.com/product/esp32-devkit-v1/),
+[RTC — Handsontec, página 4 do PDF](https://www.handsontec.com/dataspecs/module/Module%20Collection.pdf#page=4),
+[TFT — LCDWiki](https://www.lcdwiki.com/2.4inch_Arduino_Display),
+[relés — RoboticsDNA](https://roboticsdna.in/product/bestep-3v-2-channels-relay-low-level-module-trigger-with-optocoupler/)
+e [relés — Elecbee](https://www.elecbee.com/en/product-detail/3pcs-2-channel-3v-relay-module-low-level-trigger-optocoupler-isolation-for-auduino_28918).
+
+O RTC deve ser representado como uma placa alongada, girada 90° na lateral do
+verso. A bateria fica voltada para a PCB base na orientação mostrada: prever
+espaçadores e acesso para removê-la. A EEPROM e os pinos 32K/SQW não precisam
+de conexão para o uso atual do relógio. No header de seis vias, a foto mostra
+`32K / SQW / SCL / SDA / VCC / GND`; o header de quatro vias na outra ponta
+expõe `SCL / SDA / VCC / GND`. Confira a orientação ao desenhar o footprint.
+
+O nome DS3232M nos comentários/logs do firmware diverge da marcação **DS3231M**
+fotografada. O código acessa o endereço I²C `0x68`, calendário `0x00…0x06`,
+controle `0x0E` e status `0x0F`. Esses endereços e os bits usados também estão
+documentados no [datasheet do DS3231M](https://www.analog.com/media/en/technical-documentation/data-sheets/DS3231M.pdf).
+Isso sugere compatibilidade para as operações atuais; não equivale a teste
+físico nem afirma intercambiabilidade de todos os recursos. O firmware não
+foi alterado nesta revisão da disposição.
 
 Frente e verso são vistos de fora. O verso foi espelhado horizontalmente em
 relação à frente: a borda esquerda da vista traseira corresponde à borda direita
@@ -27,9 +61,9 @@ projeção da tela na face oposta; não são trilhas elétricas.
 | Conjunto | Posição sugerida | Motivo |
 |---|---|---|
 | TFT MAR2406 | Frente, abaixo da faixa reservada ao rádio | Permite janela no painel e evita sobrepor a tela à antena |
-| ESP32 DevKit | Verso, com antena junto à borda superior e preferencialmente além do contorno | Reduz obstrução pelo display e facilita substituir o módulo |
+| ESP32 DevKit V1, 30 pinos | Verso, com antena junto à borda superior e preferencialmente além do contorno | Reduz obstrução pelo display e facilita substituir o módulo |
 | Conexão da TFT | Verso, perto do ESP32 e alinhada aos conectores reais da tela | Mantém curto o barramento paralelo; pode exigir adaptador ou chicote curto |
-| RTC e bateria | Lateral do verso, longe da antena e da interface dos relés | Permite manutenção da bateria e conexão I²C curta |
+| RTC HW-084 / DS3231M | Lateral do verso, girado 90°, com folga para a bateria sob o módulo | Aproveita a placa alongada; requer retirada do módulo para manutenção da bateria |
 | DS18B20 | Conector na borda, com pull-up de 4,7 kΩ próximo | Facilita levar o cabo para a câmara e identificar 3V3, GND e DQ |
 | Alimentação | Borda inferior/lateral, com proteção e desacoplamento próximos | Evita atravessar a placa com o cabo de entrada |
 | Interface dos comandos | Próxima ao conector para a etapa externa | Mantém o caminho das saídas curto e afasta a comutação do sensor |
@@ -40,6 +74,13 @@ O desenho não representa posições físicas de pinos do DevKit ou do shield.
 Use os nomes dos sinais do firmware e confira a ordem de cada conector antes
 de criar o esquemático. Não suponha que os headers da MAR2406 formem uma única
 barra com passo uniforme; confirme os offsets do shield Arduino na placa real.
+Para este shield, a primeira montagem pode usar adaptador/chicote curto para
+os grupos de dados e de controle/alimentação. O bloco J_LCD no desenho
+representa essa interface lógica; não é uma cópia de seu header físico.
+Os headers em ângulo vistos no RTC também podem exigir chicote ou adaptação
+para montar o módulo paralelo à base; o desenho não comprova encaixe direto.
+Para sustentar a TFT, use apoio/moldura compatível com a placa real: não há
+furos de montagem da tela confirmados nas fotos.
 
 ## Antena e tela em faces opostas
 
@@ -71,6 +112,10 @@ Fonte: [Espressif — posicionamento de módulos e antena](https://docs.espressi
 - Não ligue bobinas diretamente aos GPIOs. Se houver bobina na interface,
   dimensione driver e supressão; se for módulo pronto, confirme alimentação,
   corrente e compatibilidade de entrada com 3,3 V.
+- Os relés fotografados estão marcados `03VDC`, correspondendo à bobina de
+  3 V, não a 5 V. Essa inscrição não determina sozinha o esquema de alimentação
+  do módulo completo. Confira VCC, corrente e seleção High/Low antes de
+  conectá-lo; a foto não demonstra a posição funcional dos seletores.
 - Preserve GPIO32/33 e a polaridade ativa em LOW do firmware. Projete a
   interface para permanecer desligada durante reset, programação e ausência
   do ESP32. A validação inclui alimentação do módulo de comando com o ESP32
