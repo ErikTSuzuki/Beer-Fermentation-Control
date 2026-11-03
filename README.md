@@ -39,15 +39,46 @@ As fotos do protótipo mostram um **ESP32 DEVKIT V1 com 30 pinos** e um
 e as mensagens do firmware citam DS3232M; não confunda esse nome com a marcação
 da peça fotografada. Confira a revisão e a pinagem dos módulos antes de montar.
 
-| Função | ESP32 / conexão |
+### Pinos utilizados no projeto
+
+![ESP32 DEVKIT V1 de 30 pinos: somente as conexões utilizadas pelo Cerveja Monitor](hardware/pinagem_esp32.png)
+
+[Abrir a figura com etiquetas editáveis em SVG](hardware/pinagem_esp32.svg).
+
+A figura adapta a referência de pinagem fornecida para as funções do firmware.
+Os pinos sem conexão aos periféricos do projeto ficam sem tags externas.
+Vista pela frente, com a antena acima e a porta USB abaixo; os números de
+posição das fileiras não são os números dos GPIOs.
+
+| Pino do ESP32 | Conexão no projeto |
 |---|---|
-| DS18B20 — DQ | GPIO4, pull-up externo de 4,7 kΩ para 3,3 V |
-| Aquecimento | GPIO32, comando ativo em LOW |
-| Refrigeração | GPIO33, comando ativo em LOW |
-| RTC — SDA / SCL | GPIO5 / GPIO15; pull-ups para 3,3 V |
-| TFT — D0…D7 | GPIO13, 14, 16, 17, 18, 19, 21, 22 |
-| TFT — WR / RS / CS / RST | GPIO23 / GPIO25 / GPIO26 / GPIO27 |
-| TFT — RD | 3,3 V; interface somente de escrita |
+| GPIO4 | DS18B20 — DQ; pull-up externo de 4,7 kΩ para 3V3 |
+| GPIO5 | RTC — SDA; pull-up para 3V3 |
+| GPIO15 | RTC — SCL; pull-up para 3V3 |
+| GPIO32 | Comando do aquecimento — ativo em LOW |
+| GPIO33 | Comando da refrigeração — ativo em LOW |
+| GPIO13 | TFT — LCD_D0 |
+| GPIO14 | TFT — LCD_D1 |
+| GPIO16 | TFT — LCD_D2 |
+| GPIO17 | TFT — LCD_D3 |
+| GPIO18 | TFT — LCD_D4 |
+| GPIO19 | TFT — LCD_D5 |
+| GPIO21 | TFT — LCD_D6 |
+| GPIO22 | TFT — LCD_D7 |
+| GPIO23 | TFT — LCD_WR |
+| GPIO25 | TFT — LCD_RS |
+| GPIO26 | TFT — LCD_CS |
+| GPIO27 | TFT — LCD_RST |
+| 3V3 | Alimentação do DS18B20 e do RTC, pull-ups e TFT LCD_RD mantido alto |
+| VIN / 5 V | Alimentação de 5 V da TFT, conforme a revisão do shield e o caminho de alimentação do DevKit |
+| GND | Referência comum dos circuitos de baixa tensão |
+
+A pinagem foi conferida em [Mar2406Config.h](main/Mar2406Config.h),
+[RtcConfig.h](main/RtcConfig.h), [RelayConfig.h](main/RelayConfig.h) e
+[LocalTemperature.c](main/LocalTemperature.c). Neste firmware, o I²C do RTC
+usa **GPIO5/15**; GPIO21/22 pertencem à TFT. As funções alternativas genéricas
+ADC, DAC, Touch, SPI e UART da referência foram retiradas das tags.
+O USB continua usando o circuito serial da placa para gravação e monitoramento.
 
 A alimentação da tela deve seguir a revisão real do módulo e o guia
 [TESTE_MAR2406.md](TESTE_MAR2406.md). GPIOs não recebem 5 V. Os GPIO5 e GPIO15
