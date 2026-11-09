@@ -249,6 +249,151 @@ Os arquivos gerados pelo teste ficam em `build/hybrid-tests`.
 Compilacao e testes no computador nao comprovam alcance, consumo de
 bateria ou convivencia do radio. Esses pontos exigem os testes acima.
 
+## Receber receitas e cancelamento pelo Ubidots
+
+O cliente MQTT agora assina, a cada conexao, o topico
+`/v1.6/devices/<device-label>-comandos/comando-receita`, com QoS 1. A assinatura usa o
+JSON completo, sem `/lv`, para receber `value`, `timestamp` e `context`.
+O envio das dez variaveis de telemetria, seu intervalo e a interface local
+permanecem iguais. Nao ha nova pagina nem servidor proprio.
+
+Crie um segundo dispositivo **logico** com API label igual ao do firmware
+acrescido de `-comandos`. Exemplo: `teste-oficina` recebe comandos por
+`teste-oficina-comandos`. Nesse dispositivo, crie uma variavel **raw** com
+API label `comando-receita`. Um valor inicial `0` nao executa nenhuma acao.
+Nao e outro equipamento: o mesmo ESP32 publica no primeiro dispositivo e
+escuta o segundo, com o mesmo token. Isso preserva as dez variaveis existentes,
+pois o [STEM limita cada dispositivo a dez variaveis](https://help.ubidots.com/en/articles/639806-plans-billing-what-is-the-difference-between-ubidots-and-ubidots-stem).
+E necessario ter uma vaga de dispositivo disponivel na conta.
+
+| Campo | Iniciar receita | Cancelar e desligar |
+|---|---|---|
+| `value` | `1` | `2` |
+| `timestamp` | Unix UTC em milissegundos | Unix UTC em milissegundos |
+| `context.recipe` | Receita JSON como **string**, ate 4096 bytes UTF-8 | Dispensavel |
+
+A receita usa o formato de `recipes/exemplo.json`. Envie seu JSON como texto
+em `context.recipe`, nao como objeto aninhado. O envelope recebido aceita ate
+9216 bytes para acomodar aspas escapadas; mensagens maiores que o buffer MQTT
+de 2048 bytes sao remontadas antes de interpretar.
+
+Regras do recebimento:
+
+- O relogio do sistema precisa ter hora valida pelo NTP ja existente. A hora
+  exibida pelo RTC sozinha nao comprova sincronizacao do sistema nesta partida.
+- O timestamp deve ser posterior a conexao MQTT atual, ter no maximo 120 segundos
+  e nao estar no futuro. Sincronize o relogio do computador; alternativamente,
+  omita o timestamp na publicacao HTTP para o Ubidots atribui-lo ao receber.
+- Cada pedido deve ter timestamp maior que o anterior. Timestamps iguais ou
+  anteriores sao ignorados neste boot, inclusive depois de um pedido recusado.
+- Mensagens MQTT retidas sao ignoradas. Reconectar/reiniciar nao executa o
+  ultimo comando antigo. Pedidos enviados offline nao sao executados depois;
+  confira o estado e envie um pedido novo quando a conexao voltar.
+- Iniciar/cancelar usam as mesmas filas e validacoes da pagina local. Cancele
+  uma receita em andamento antes de iniciar outra.
+- O log `enfileirado` confirma a entrada na fila, nao a execucao ou a gravacao
+  em flash. Confirme pelos logs `RECIPE`, estado local ou telemetria existente.
+  Nao foi adicionada variavel de resposta.
+
+### Teste na placa, sem pagina propria
+
+1. No terminal ESP-IDF, dentro de `beer_monitor`, compile e grave o ESP32:
+
+   ```powershell
+   idf.py build
+   idf.py -p COM6 flash monitor
+   ```
+
+   Ajuste `COM6` para sua placa. O iSpindel nao precisa mudar. No primeiro
+   teste, use a bancada com as cargas dos reles desconectadas.
+
+2. Aguarde Wi-Fi externo, sincronizacao NTP e o log
+   `Assinatura MQTT confirmada; comandos: 1 iniciar, 2 cancelar`.
+   Se criou a variavel depois da conexao, reconecte o ESP32.
+
+3. Em outro PowerShell, na pasta `beer_monitor`, informe o API label do
+   dispositivo (`BEER_UBIDOTS_DEVICE_LABEL` do firmware) e o token da conta:
+
+   ```powershell
+   $device = Read-Host 'API label do dispositivo (o mesmo do firmware)'
+   $secureToken = Read-Host 'Token do Ubidots' -AsSecureString
+   $headers = @{
+       'X-Auth-Token' = [System.Net.NetworkCredential]::new('', $secureToken).Password
+   }
+   $commandDevice = "$device-comandos"
+   $uri = "https://industrial.api.ubidots.com/api/v1.6/devices/$commandDevice/"
+   ```
+
+4. Sem receita ativa, envie o exemplo. Este comando inicia uma receita real:
+
+   ```powershell
+   $recipeText = Get-Content .\recipes\exemplo.json -Raw -Encoding UTF8 |
+       ConvertFrom-Json | ConvertTo-Json -Depth 10 -Compress
+   $startBody = @{
+       'comando-receita' = @{
+           value = 1
+           timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+           context = @{ recipe = $recipeText }
+       }
+   } | ConvertTo-Json -Depth 10 -Compress
+   Invoke-RestMethod -Method Post -Uri $uri -Headers $headers `
+       -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($startBody))
+   ```
+
+   Aguarde `Comando Ubidots iniciar enfileirado` e depois
+   `Receita 'Exemplo 20-12-3 C' iniciada`. Confira alvo de 20 C e etapa 1.
+   A pagina local atualiza em seu ciclo habitual; no Ubidots, confira
+   `etapa-fermentacao`, seu contexto e `temperatura-alvo` na proxima publicacao
+   (ate cinco minutos na configuracao atual). O sucesso HTTP confirma somente
+   que o Ubidots recebeu o pedido.
+
+5. Repita apenas o `Invoke-RestMethod` com o mesmo `$startBody`: o ESP32 deve
+   ignorar o timestamp repetido. Um pedido com timestamp novo enquanto ha
+   receita ativa deve ser recusado sem substituir a receita.
+
+6. Cancele com um novo timestamp:
+
+   ```powershell
+   $cancelBody = @{
+       'comando-receita' = @{
+           value = 2
+           timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+       }
+   } | ConvertTo-Json -Depth 10 -Compress
+   Invoke-RestMethod -Method Post -Uri $uri -Headers $headers `
+       -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($cancelBody))
+   ```
+
+   Aguarde `Receita cancelada; controle termico desativado` e confira os dois
+   comandos dos reles desligados. Depois pode enviar uma receita nova.
+
+7. Teste receita invalida (`context.recipe` igual a `'{}'`), timestamp de tres
+   minutos atras e reconexao. Nenhum deve iniciar receita indevidamente. Ao
+   reiniciar, uma receita ativa pode retomar pela persistencia existente;
+   isso nao significa que o comando antigo foi reexecutado.
+
+O MQTT continua na porta 1883, sem TLS, conforme a configuracao anterior.
+Esta alteracao nao modifica o transporte nem acrescenta permissoes por usuario.
+
+### Teste automatizado sem placa
+
+```powershell
+python -B tests/test_ubidots_commands.py
+```
+
+Aceita o caminho do GCC como argumento. No Windows com MSYS2/MinGW64:
+
+```powershell
+$env:PATH = 'C:\msys64\mingw64\bin;' + $env:PATH
+python -B tests/test_ubidots_commands.py C:/msys64/mingw64/bin/gcc.exe
+```
+
+Executa o callback real, a remontagem e o parser real de receitas, com MQTT,
+relogio e fila simulados. Cobre inicio, cancelamento, receita ativa/invalida,
+duplicatas, validade, NTP ausente, retencao, reconexao, limites, fragmentos
+inconsistentes e falha de memoria. Nao acessa a nuvem nem uma placa. Os arquivos
+gerados ficam em `build/ubidots-command-tests`.
+
 ## Referencias
 
 - [Espressif: coexistencia AP/STA e canal compartilhado](https://docs.espressif.com/projects/esp-idf/en/v5.4/esp32/api-guides/wifi.html)

@@ -26,7 +26,13 @@ typedef struct {
     struct { int priority, stack_size; } task;
 } esp_mqtt_client_config_t;
 typedef struct { int error_type, connect_return_code; } mock_mqtt_error;
-typedef struct { mock_mqtt_error *error_handle; } *esp_mqtt_event_handle_t;
+typedef struct {
+    mock_mqtt_error *error_handle;
+    esp_mqtt_client_handle_t client;
+    char *data, *topic;
+    int data_len, total_data_len, current_data_offset, topic_len;
+    bool retain;
+} *esp_mqtt_event_handle_t;
 #define BIT0 1
 #define WIFI_IF_STA 0
 #define configTICK_RATE_HZ 1000
@@ -40,6 +46,8 @@ typedef struct { mock_mqtt_error *error_handle; } *esp_mqtt_event_handle_t;
 #define MQTT_EVENT_CONNECTED 1
 #define MQTT_EVENT_DISCONNECTED 2
 #define MQTT_EVENT_ERROR 3
+#define MQTT_EVENT_SUBSCRIBED 4
+#define MQTT_EVENT_DATA 5
 #define MQTT_ERROR_TYPE_CONNECTION_REFUSED 1
 #define MQTT_PROTOCOL_V_3_1_1 4
 #define ESP_EVENT_ANY_ID -1
@@ -55,8 +63,34 @@ esp_err_t esp_mqtt_client_register_event(esp_mqtt_client_handle_t, int,
 esp_err_t esp_mqtt_client_start(esp_mqtt_client_handle_t);
 esp_err_t esp_mqtt_client_destroy(esp_mqtt_client_handle_t);
 int esp_mqtt_client_publish(esp_mqtt_client_handle_t, const char *, const char *, int, int, int);
+int esp_mqtt_client_subscribe(esp_mqtt_client_handle_t, const char *, int);
 void vTaskDelete(void *);
 void vTaskDelay(TickType_t);
+'''
+
+# SDK functions outside the payload/command paths; kept explicit for PE/MinGW,
+# whose linker can resolve unused references before discarding their sections.
+SDK_STUBS = r'''
+int xEventGroupGetBits(EventGroupHandle_t group) { (void)group; return 0; }
+EventGroupHandle_t xEventGroupCreate(void) { return (void *)1; }
+void vEventGroupDelete(EventGroupHandle_t group) { (void)group; }
+esp_err_t esp_wifi_get_mac(int interface, uint8_t *mac) { (void)interface; memset(mac, 0, 6); return ESP_OK; }
+esp_mqtt_client_handle_t esp_mqtt_client_init(const esp_mqtt_client_config_t *config) { (void)config; return (void *)1; }
+esp_err_t esp_mqtt_client_register_event(esp_mqtt_client_handle_t client, int id,
+    void (*callback)(void *, esp_event_base_t, int32_t, void *), void *arg) {
+    (void)client; (void)id; (void)callback; (void)arg; return ESP_OK;
+}
+esp_err_t esp_mqtt_client_start(esp_mqtt_client_handle_t client) { (void)client; return ESP_OK; }
+esp_err_t esp_mqtt_client_destroy(esp_mqtt_client_handle_t client) { (void)client; return ESP_OK; }
+int esp_mqtt_client_publish(esp_mqtt_client_handle_t client, const char *topic, const char *body, int len, int qos, int retain) {
+    (void)client; (void)topic; (void)body; (void)len; (void)qos; (void)retain; return 1;
+}
+bool wifi_station_is_connected(void) { return true; }
+void vTaskDelete(void *task) { (void)task; abort(); }
+void vTaskDelay(TickType_t ticks) { (void)ticks; abort(); }
+int xTaskCreate(void (*task)(void *), const char *name, unsigned stack, void *arg, unsigned priority, void *handle) {
+    (void)task; (void)name; (void)stack; (void)arg; (void)priority; (void)handle; return pdPASS;
+}
 '''
 
 HARNESS = r'''
@@ -68,6 +102,14 @@ static bool localAvailable, remoteAvailable, controlAvailable;
 static const int64_t now = INT64_C(10000000);
 static int scenario;
 void mock_log(const char *tag, const char *fmt, ...) { (void)tag; (void)fmt; }
+const char *esp_err_to_name(esp_err_t error) { (void)error; return "mock"; }
+int xEventGroupSetBits(EventGroupHandle_t group, int bits) { (void)group; return bits; }
+int xEventGroupClearBits(EventGroupHandle_t group, int bits) { (void)group; return bits; }
+int esp_mqtt_client_subscribe(esp_mqtt_client_handle_t client, const char *topic, int qos) {
+    (void)client; (void)topic; (void)qos; return 1;
+}
+esp_err_t fermentation_recipe_submit_json(const char *json, size_t length) { (void)json; (void)length; abort(); }
+esp_err_t fermentation_recipe_cancel(void) { abort(); }
 int64_t esp_timer_get_time(void) { return now; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)(now / 1000); }
 bool local_temperature_latest(LocalTemperature *sample) {
@@ -139,7 +181,7 @@ def main():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('#include "telemetry_mock.h"\n', encoding="utf-8")
     source = BUILD / "telemetry_test.c"
-    source.write_text(HARNESS, encoding="utf-8")
+    source.write_text(HARNESS + SDK_STUBS, encoding="utf-8")
     executable = BUILD / "telemetry_test"
     subprocess.run([
         compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-ffunction-sections", "-fdata-sections",
