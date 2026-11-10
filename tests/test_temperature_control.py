@@ -20,7 +20,7 @@ LOGIC_TEST = r'''
 #define SEC(x) ((int64_t)(x) * 1000000)
 #define CHECK(x) do { assert(x); ++checks; } while (0)
 static unsigned checks;
-static const TemperatureControlSettings settings = {-5, 40, .5f, .5f, SEC(300), SEC(30)};
+static const TemperatureControlSettings settings = {-5, 40, .5f, .5f, SEC(300), SEC(30), SEC(300)};
 static TemperatureControlCommand command = {18, true};
 static TemperatureControlLogic logic;
 static TemperatureControlDecision step(float temp, int64_t at, bool valid) {
@@ -38,7 +38,11 @@ int main(void) {
     CHECK(!temperature_control_settings_valid(&invalid, 18));
     invalid = settings; invalid.coolingDifferentialC = NAN;
     CHECK(!temperature_control_settings_valid(&invalid, 18));
-    invalid = settings; invalid.compressorOffUs = SEC(59);
+    invalid = settings; invalid.compressorOffUs = SEC(299);
+    CHECK(!temperature_control_settings_valid(&invalid, 18));
+    invalid = settings; invalid.compressorOnUs = SEC(299);
+    CHECK(!temperature_control_settings_valid(&invalid, 18));
+    invalid = settings; invalid.compressorOnUs = SEC(3601);
     CHECK(!temperature_control_settings_valid(&invalid, 18));
     invalid = settings; invalid.changeoverUs = 0;
     CHECK(!temperature_control_settings_valid(&invalid, 18));
@@ -52,60 +56,73 @@ int main(void) {
     CHECK(step(18.4f, SEC(300), true).state == CONTROL_IDLE); // demand disappeared
     CHECK(step(18.5f, SEC(300), true).state == CONTROL_COOLING);
     CHECK(step(18.2f, SEC(301), true).state == CONTROL_COOLING);
-    CHECK(step(18, SEC(302), true).state == CONTROL_IDLE);
-    CHECK(step(18.5f, SEC(303), true).waitUs == SEC(299));
-    CHECK(step(19, SEC(601), true).state == CONTROL_WAIT_COMPRESSOR);
-    CHECK(step(19, SEC(602), true).state == CONTROL_COOLING);
+    CHECK(step(18, SEC(302), true).state == CONTROL_COOLING);
+    CHECK(step(18, SEC(302), true).waitUs == SEC(298));
+    CHECK(step(17, SEC(599), true).output == CONTROL_OUTPUT_COOLER);
+    CHECK(step(18.01f, SEC(600), true).state == CONTROL_COOLING);
+    CHECK(step(18, SEC(601), true).state == CONTROL_IDLE);
+    CHECK(step(18.49f, SEC(602), true).state == CONTROL_IDLE);
+    CHECK(step(18.5f, SEC(602), true).waitUs == SEC(299));
+    CHECK(step(19, SEC(900), true).state == CONTROL_WAIT_COMPRESSOR);
+    CHECK(step(19, SEC(901), true).state == CONTROL_COOLING);
 
-    // Fault stops immediately, starts a new full off timer and cannot bypass it.
-    CHECK(step(19, SEC(603), false).state == CONTROL_SENSOR_FAULT);
+    // Fault and explicit disable override minimum on; recovery respects off time.
+    CHECK(step(19, SEC(902), false).state == CONTROL_SENSOR_FAULT);
     CHECK(logic.output == CONTROL_OUTPUT_OFF);
-    CHECK(step(19, SEC(604), true).waitUs == SEC(299));
+    CHECK(step(19, SEC(903), true).waitUs == SEC(299));
     command.enabled = false;
-    CHECK(step(19, SEC(605), true).state == CONTROL_DISABLED);
+    CHECK(step(19, SEC(904), true).state == CONTROL_DISABLED);
     command.enabled = true;
-    CHECK(step(19, SEC(606), true).waitUs == SEC(297));
-    CHECK(step(19, SEC(903), true).state == CONTROL_COOLING);
-    CHECK(step(NAN, SEC(904), true).state == CONTROL_SENSOR_FAULT);
-    CHECK(step(INFINITY, SEC(905), true).state == CONTROL_SENSOR_FAULT);
-    CHECK(step(-6, SEC(906), true).state == CONTROL_SENSOR_FAULT);
-    CHECK(step(41, SEC(907), true).state == CONTROL_SENSOR_FAULT);
+    CHECK(step(19, SEC(905), true).waitUs == SEC(297));
+    CHECK(step(19, SEC(1202), true).state == CONTROL_COOLING);
+    command.enabled = false;
+    CHECK(step(19, SEC(1203), true).state == CONTROL_DISABLED);
+    command.enabled = true;
+    CHECK(step(19, SEC(1204), true).waitUs == SEC(299));
+    CHECK(step(NAN, SEC(1205), true).state == CONTROL_SENSOR_FAULT);
+    CHECK(step(INFINITY, SEC(1206), true).state == CONTROL_SENSOR_FAULT);
+    CHECK(step(-6, SEC(1207), true).state == CONTROL_SENSOR_FAULT);
+    CHECK(step(41, SEC(1208), true).state == CONTROL_SENSOR_FAULT);
 
-    temperature_control_logic_initialize(&logic, SEC(1000));
-    CHECK(step(17.5f, SEC(1000), true).state == CONTROL_HEATING);
-    CHECK(step(17.8f, SEC(1001), true).state == CONTROL_HEATING);
-    CHECK(step(18, SEC(1002), true).state == CONTROL_IDLE);
-    CHECK(step(18.5f, SEC(1300), true).state == CONTROL_COOLING);
-    // Changing the target turns the active output off before requesting opposite.
+    temperature_control_logic_initialize(&logic, SEC(2000));
+    CHECK(step(17.51f, SEC(2000), true).state == CONTROL_IDLE);
+    CHECK(step(17.5f, SEC(2000), true).state == CONTROL_HEATING);
+    CHECK(step(17.99f, SEC(2001), true).state == CONTROL_HEATING);
+    CHECK(step(18, SEC(2002), true).state == CONTROL_IDLE);
+    CHECK(step(18.5f, SEC(2300), true).state == CONTROL_COOLING);
+    // Target changes respect minimum on, then switch through OFF and changeover.
     command.targetC = 22;
-    CHECK(step(19, SEC(1301), true).state == CONTROL_IDLE);
-    CHECK(step(19, SEC(1302), true).state == CONTROL_WAIT_CHANGEOVER);
-    CHECK(step(19, SEC(1330), true).waitUs == SEC(1));
-    CHECK(step(19, SEC(1331), true).state == CONTROL_HEATING);
+    CHECK(step(19, SEC(2301), true).state == CONTROL_COOLING);
+    CHECK(step(19, SEC(2599), true).waitUs == SEC(1));
+    CHECK(step(19, SEC(2600), true).state == CONTROL_IDLE);
+    CHECK(step(19, SEC(2601), true).state == CONTROL_WAIT_CHANGEOVER);
+    CHECK(step(19, SEC(2629), true).waitUs == SEC(1));
+    CHECK(step(19, SEC(2630), true).state == CONTROL_HEATING);
     command.targetC = 18;
-    CHECK(step(19, SEC(1332), true).state == CONTROL_IDLE);
-    CHECK(step(19, SEC(1333), true).state == CONTROL_WAIT_COMPRESSOR);
-    CHECK(step(19, SEC(1600), true).waitUs == SEC(1));
-    CHECK(step(19, SEC(1601), true).state == CONTROL_COOLING);
+    CHECK(step(19, SEC(2631), true).state == CONTROL_IDLE);
+    CHECK(step(19, SEC(2632), true).state == CONTROL_WAIT_COMPRESSOR);
+    CHECK(step(19, SEC(2899), true).waitUs == SEC(1));
+    CHECK(step(19, SEC(2900), true).state == CONTROL_COOLING);
     command.targetC = NAN;
-    CHECK(step(19, SEC(1602), true).state == CONTROL_CONFIG_FAULT);
+    CHECK(step(19, SEC(2901), true).state == CONTROL_CONFIG_FAULT);
     CHECK(logic.output == CONTROL_OUTPUT_OFF);
     command.targetC = 18;
-    CHECK(step(19, SEC(1603), true).waitUs == SEC(299));
+    CHECK(step(19, SEC(2902), true).waitUs == SEC(299));
 
-    // Long fermentation: timestamps beyond any 32-bit millisecond/tick counter.
+    // Long fermentation and exact microsecond boundaries.
     const int64_t month = SEC(INT64_C(90) * 86400);
     temperature_control_logic_initialize(&logic, month);
-    CHECK(step(19, month + SEC(299), true).state == CONTROL_WAIT_COMPRESSOR);
+    CHECK(step(19, month + SEC(300) - 1, true).waitUs == 1);
     CHECK(step(19, month + SEC(300), true).state == CONTROL_COOLING);
-    CHECK(step(18, month + SEC(301), true).state == CONTROL_IDLE);
-    CHECK(step(19, month + SEC(600), true).waitUs == SEC(1));
-    CHECK(step(19, month + SEC(601), true).state == CONTROL_COOLING);
+    CHECK(step(18, month + SEC(600) - 1, true).waitUs == 1);
+    CHECK(step(18, month + SEC(600), true).state == CONTROL_IDLE);
+    CHECK(step(19, month + SEC(900) - 1, true).waitUs == 1);
+    CHECK(step(19, month + SEC(900), true).state == CONTROL_COOLING);
 
     // Deterministic varied inputs: verify invariants independently of state labels.
     temperature_control_logic_initialize(&logic, 0);
     TemperatureControlOutput previous = CONTROL_OUTPUT_OFF, lastActive = CONTROL_OUTPUT_OFF;
-    int64_t now = 0, coolerStopped = 0, outputStopped = 0;
+    int64_t now = 0, coolerStopped = 0, coolerStarted = 0, outputStopped = 0;
     uint32_t random = 0x12345678;
     for (unsigned i = 0; i < 30000; ++i) {
         random = random * 1664525u + 1013904223u;
@@ -122,10 +139,16 @@ int main(void) {
             CHECK(output == CONTROL_OUTPUT_OFF);
             outputStopped = now;
             lastActive = previous;
-            if (previous == CONTROL_OUTPUT_COOLER) coolerStopped = now;
+            if (previous == CONTROL_OUTPUT_COOLER) {
+                if (command.enabled && valid) CHECK(now - coolerStarted >= SEC(300));
+                coolerStopped = now;
+            }
         }
         if (previous == CONTROL_OUTPUT_OFF && output != CONTROL_OUTPUT_OFF) {
-            if (output == CONTROL_OUTPUT_COOLER) CHECK(now - coolerStopped >= SEC(300));
+            if (output == CONTROL_OUTPUT_COOLER) {
+                CHECK(now - coolerStopped >= SEC(300));
+                coolerStarted = now;
+            }
             if (lastActive && lastActive != output) CHECK(now - outputStopped >= SEC(30));
             if (output == CONTROL_OUTPUT_COOLER) CHECK(temperature >= command.targetC + .5f);
             else CHECK(temperature <= command.targetC - .5f);
@@ -267,6 +290,45 @@ static void expect(TemperatureControlState state) {
 void vTaskDelayUntil(TickType_t *wake, TickType_t period) {
     CHECK(period == 500 && wake != NULL);
     *wake += period;
+    if (!strcmp(mode, "minimum-cycle")) {
+        TemperatureControlStatus status;
+        CHECK(temperature_control_latest(&status));
+        switch (iteration++) {
+            case 0:
+                CHECK(temperature_control_set_target(18, true));
+                now = SEC(300); setSample(18.5f); break;
+            case 1:
+                expect(CONTROL_COOLING); now = SEC(301); setSample(18); break;
+            case 2:
+                expect(CONTROL_COOLING); CHECK(status.waitSeconds == 299);
+                now = SEC(600) - 1; setSample(17.5f); break;
+            case 3:
+                expect(CONTROL_COOLING); CHECK(status.waitSeconds == 1);
+                now = SEC(600); setSample(18); break;
+            case 4:
+                expect(CONTROL_IDLE); now = SEC(900) - 1; setSample(18.5f); break;
+            case 5:
+                expect(CONTROL_WAIT_COMPRESSOR); CHECK(status.waitSeconds == 1);
+                now = SEC(900); setSample(18.5f); break;
+            case 6:
+                expect(CONTROL_COOLING);
+                CHECK(temperature_control_set_target(18, false));
+                now = SEC(901); setSample(18.5f); break;
+            case 7:
+                expect(CONTROL_DISABLED);
+                CHECK(temperature_control_set_target(18, true));
+                now = SEC(902); setSample(18.5f); break;
+            case 8:
+                expect(CONTROL_WAIT_COMPRESSOR); CHECK(status.waitSeconds == 299);
+                now = SEC(1201); setSample(18.5f); break;
+            case 9:
+                expect(CONTROL_COOLING); now = SEC(1202); sample.valid = false; break;
+            case 10:
+                expect(CONTROL_SENSOR_FAULT); longjmp(finish, 1);
+            default: assert(false);
+        }
+        return;
+    }
     if (!strcmp(mode, "gpio-fault")) {
         switch (iteration++) {
             case 0:
@@ -404,7 +466,7 @@ def main():
         f"#define CONFIG_BEER_CONTROL_{name} {value}" for name, value in {
             "TARGET_CENTIC": 1800, "MIN_CENTIC": -500, "MAX_CENTIC": 4000,
             "HEATING_DIFF_CENTIC": 50, "COOLING_DIFF_CENTIC": 50,
-            "COMPRESSOR_OFF_SECONDS": 300, "CHANGEOVER_SECONDS": 30,
+            "COMPRESSOR_OFF_SECONDS": 300, "COMPRESSOR_ON_SECONDS": 300, "CHANGEOVER_SECONDS": 30,
             "SENSOR_MAX_AGE_MS": 5000,
         }.items()
     )
@@ -423,7 +485,7 @@ def main():
             executable = BUILD / f"adapter_test_{active_low}_{enabled}"
             definitions = ["-DCONFIG_BEER_CONTROL_ENABLED=1"] if enabled else []
             subprocess.run([*common, *definitions, str(source), str(logic), "-lm", "-o", str(executable)], check=True)
-            modes = ("normal", "task-fault", "queue-fault", "gpio-fault") if enabled else ("normal",)
+            modes = ("normal", "minimum-cycle", "task-fault", "queue-fault", "gpio-fault") if enabled else ("normal", "minimum-cycle")
             for mode in modes:
                 subprocess.run([str(executable), mode], check=True, timeout=10)
 

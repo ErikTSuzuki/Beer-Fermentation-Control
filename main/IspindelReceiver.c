@@ -98,6 +98,18 @@ static esp_err_t reject(httpd_req_t *request, const char *status, const char *bo
     return ESP_FAIL;
 }
 
+static esp_err_t rejectReading(httpd_req_t *request, const uint8_t mac[6],
+                               const char *status, const char *body) {
+    // Erros de outros clientes da interface local nao derrubam o sensor.
+    IspindelReading reading;
+    if (selected && memcmp(sensorMac, mac, sizeof(sensorMac)) == 0 &&
+        xQueuePeek(latestQueue, &reading, 0) == pdTRUE && !reading.receiveFailed) {
+        reading.receiveFailed = true;
+        xQueueOverwrite(latestQueue, &reading);
+    }
+    return reject(request, status, body);
+}
+
 static esp_err_t receiveReading(httpd_req_t *request) {
     uint8_t mac[6];
     int rssi;
@@ -108,10 +120,10 @@ static esp_err_t receiveReading(httpd_req_t *request) {
     if (httpd_req_get_hdr_value_str(request, "Content-Type", contentType, sizeof(contentType)) != ESP_OK ||
         strncasecmp(contentType, "application/json", 16) != 0 ||
         (contentType[16] && contentType[16] != ';' && contentType[16] != ' ')) {
-        return reject(request, "415 Unsupported Media Type", "{\"accepted\":false,\"error\":\"json_required\"}");
+        return rejectReading(request, mac, "415 Unsupported Media Type", "{\"accepted\":false,\"error\":\"json_required\"}");
     }
     if (!request->content_len || request->content_len >= BREW_HTTP_BODY_MAX) {
-        return reject(request, "413 Content Too Large", "{\"accepted\":false,\"error\":\"body_size\"}");
+        return rejectReading(request, mac, "413 Content Too Large", "{\"accepted\":false,\"error\":\"body_size\"}");
     }
     char body[BREW_HTTP_BODY_MAX];
     size_t received = 0;
@@ -119,13 +131,13 @@ static esp_err_t receiveReading(httpd_req_t *request) {
     while (received < request->content_len) {
         const int bytes = httpd_req_recv(request, body + received, request->content_len - received);
         if (bytes <= 0 || xTaskGetTickCount() - started > pdMS_TO_TICKS(3000)) {
-            return reject(request, "408 Request Timeout", "{\"accepted\":false,\"error\":\"incomplete_body\"}");
+            return rejectReading(request, mac, "408 Request Timeout", "{\"accepted\":false,\"error\":\"incomplete_body\"}");
         }
         received += (size_t)bytes;
     }
     BrewTelemetry packet;
     if (!brew_json_parse(body, received, &packet)) {
-        return reject(request, "400 Bad Request", "{\"accepted\":false,\"error\":\"invalid_reading\"}");
+        return rejectReading(request, mac, "400 Bad Request", "{\"accepted\":false,\"error\":\"invalid_reading\"}");
     }
     if (selected && memcmp(sensorMac, mac, sizeof(sensorMac)) != 0) {
         return reject(request, "409 Conflict", "{\"accepted\":false,\"error\":\"another_sensor_selected\"}");
@@ -135,7 +147,7 @@ static esp_err_t receiveReading(httpd_req_t *request) {
         previous.header.bootId == packet.header.bootId &&
         previous.header.sequence == packet.header.sequence;
     if (duplicate && memcmp(&packet, &previous, sizeof(packet)) != 0) {
-        return reject(request, "409 Conflict", "{\"accepted\":false,\"error\":\"sequence_conflict\"}");
+        return rejectReading(request, mac, "409 Conflict", "{\"accepted\":false,\"error\":\"sequence_conflict\"}");
     }
     if (!duplicate) {
         const IspindelReading reading = {.packet = packet, .receivedAt = xTaskGetTickCount(),
@@ -147,6 +159,13 @@ static esp_err_t receiveReading(httpd_req_t *request) {
         previous = packet;
         havePrevious = true;
         telemetry_logger_print_reading(&packet, mac, rssi, ++count);
+    } else {
+        // Retry valido recupera o status sem rejuvenescer a mesma medicao.
+        IspindelReading reading;
+        if (xQueuePeek(latestQueue, &reading, 0) == pdTRUE && reading.receiveFailed) {
+            reading.receiveFailed = false;
+            xQueueOverwrite(latestQueue, &reading);
+        }
     }
     char response[192];
     snprintf(response, sizeof(response),
@@ -164,7 +183,8 @@ bool ispindel_receiver_create_queue(void) {
 }
 
 bool ispindel_receiver_latest(IspindelReading *reading) {
-    return reading && latestQueue && xQueuePeek(latestQueue, reading, 0) == pdTRUE;
+    return reading && latestQueue && xQueuePeek(latestQueue, reading, 0) == pdTRUE &&
+        !reading->receiveFailed;
 }
 
 static bool localUiClient(httpd_req_t *request) {

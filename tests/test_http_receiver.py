@@ -54,7 +54,7 @@ typedef struct {
 #define pdTRUE 1
 #define configTICK_RATE_HZ 1000
 #define pdMS_TO_TICKS(x) ((TickType_t)(x))
-#define CONFIG_BEER_ISPINDEL_STALE_SECONDS 1800
+#define CONFIG_BEER_ISPINDEL_STALE_SECONDS 600
 #define CONFIG_BEER_AP_IP "192.168.50.1"
 #define HTTPD_DEFAULT_CONFIG() ((httpd_config_t){0})
 #define HTTP_POST 1
@@ -265,29 +265,72 @@ int main(int argc, char **argv) {
     char conflict[512]; strcpy(conflict, body);
     char *temperature = strstr(conflict, "\"temperature_c\":"); assert(temperature);
     temperature[strlen("\"temperature_c\":")] = '3';
-    assert(request(conflict, size) == ESP_FAIL && status == 409 && writes == 1); ++scenarios;
+    assert(request(conflict, size) == ESP_FAIL && status == 409 && logs == 1); ++scenarios;
+    assert(!ispindel_receiver_latest(&reading)); ++scenarios;
+    assert(request(body, size) == ESP_OK && ispindel_receiver_latest(&reading)); ++scenarios;
+    assert(reading.receivedAtUs == firstReceivedUs); ++scenarios;
     macValue = 2; assert(request(body, size) == ESP_FAIL && status == 409); macValue = 1; ++scenarios;
+    assert(ispindel_receiver_latest(&reading)); ++scenarios;
     associated = false; assert(request(body, size) == ESP_FAIL && status == 403); associated = true; ++scenarios;
     peerIp = 9; assert(request(body, size) == ESP_FAIL && status == 403); peerIp = 2; ++scenarios;
     contentType = "text/plain"; assert(request(body, size) == ESP_FAIL && status == 415); ++scenarios;
+    assert(!ispindel_receiver_latest(&reading)); ++scenarios;
     contentType = NULL; assert(request(body, size) == ESP_FAIL && status == 415); ++scenarios;
     contentType = "application/json; charset=utf-8";
-    assert(request(body, size) == ESP_OK && writes == 1); ++scenarios;
+    assert(request(body, size) == ESP_OK && logs == 1); ++scenarios;
+    assert(ispindel_receiver_latest(&reading) && reading.receivedAtUs == firstReceivedUs); ++scenarios;
     assert(request(body, 512) == ESP_FAIL && status == 413); ++scenarios;
     assert(request(body, 0) == ESP_FAIL && status == 413); ++scenarios;
     recvFail = true; assert(request(body, size) == ESP_FAIL && status == 408); recvFail = false; ++scenarios;
     slow = true; assert(request(body, size) == ESP_FAIL && status == 408); slow = false; ++scenarios;
-    assert(request("{}", 2) == ESP_FAIL && status == 400 && writes == 1); ++scenarios;
+    assert(request("{}", 2) == ESP_FAIL && status == 400 && logs == 1); ++scenarios;
+    assert(!ispindel_receiver_latest(&reading)); ++scenarios;
     char *sequence = strstr(body, "\"sequence\":"); assert(sequence);
     sequence[strlen("\"sequence\":")] = '2';
     sendFail = true;
-    assert(request(body, size) == ESP_FAIL && writes == 2 && logs == 2); ++scenarios;
+    assert(request(body, size) == ESP_FAIL && logs == 2); ++scenarios;
     const TickType_t secondReceived = cached.receivedAt;
     const int64_t secondReceivedUs = cached.receivedAtUs;
     sendFail = false;
-    assert(request(body, size) == ESP_OK && writes == 2 && logs == 2);
+    assert(request(body, size) == ESP_OK && logs == 2);
     assert(cached.receivedAt == secondReceived); ++scenarios;
     assert(cached.receivedAtUs == secondReceivedUs); ++scenarios;
+    assert(ispindel_receiver_latest(&reading)); ++scenarios;
+    const int64_t expiry = reading.receivedAtUs + INT64_C(600000000);
+    assert(ispindel_reading_is_current(&reading, expiry - 1)); ++scenarios;
+    assert(!ispindel_reading_is_current(&reading, expiry)); ++scenarios;
+    assert(!ispindel_reading_is_current(&reading, reading.receivedAtUs - 1)); ++scenarios;
+    assert(!ispindel_reading_is_current(NULL, expiry)); ++scenarios;
+    // Duplicate retries do not reset the ten-minute freshness deadline.
+    now = (uint32_t)(expiry / 1000 + 1);
+    assert(request(body, size) == ESP_OK && cached.receivedAtUs == secondReceivedUs); ++scenarios;
+    assert(!ispindel_reading_is_current(&cached, esp_timer_get_time())); ++scenarios;
+    // A long-running ESP32 cannot make an old sample fresh after tick wrap.
+    assert(!ispindel_reading_is_current(&reading, reading.receivedAtUs + INT64_C(4294967296000))); ++scenarios;
+    // Each failed receive invalidates a previously recovered sensor on its own.
+    for (int failure = 0; failure < 7; ++failure) {
+        assert(request(body, size) == ESP_OK && ispindel_receiver_latest(&reading));
+        switch (failure) {
+            case 0: contentType = "text/plain"; assert(request(body, size) == ESP_FAIL); break;
+            case 1: assert(request(body, 0) == ESP_FAIL); break;
+            case 2: assert(request(body, 512) == ESP_FAIL); break;
+            case 3: recvFail = true; assert(request(body, size) == ESP_FAIL); break;
+            case 4: slow = true; assert(request(body, size) == ESP_FAIL); break;
+            case 5: assert(request("{}", 2) == ESP_FAIL); break;
+            case 6: {
+                strcpy(conflict, body);
+                temperature = strstr(conflict, "\"temperature_c\":");
+                temperature[strlen("\"temperature_c\":")] = '3';
+                assert(request(conflict, size) == ESP_FAIL); break;
+            }
+        }
+        assert(!ispindel_receiver_latest(&reading) && cached.receiveFailed); ++scenarios;
+        contentType = "application/json"; recvFail = slow = false;
+    }
+    assert(request(body, size) == ESP_OK && ispindel_receiver_latest(&reading));
+    macValue = 2;
+    assert(request("{}", 2) == ESP_FAIL && ispindel_receiver_latest(&reading)); ++scenarios;
+    macValue = 1;
     printf("%d HTTP receiver scenarios passed\n", scenarios);
 }
 '''

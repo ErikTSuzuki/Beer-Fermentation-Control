@@ -104,7 +104,7 @@ function renderStatus(status){
   lastStatus=status;capabilities=status.capabilities;connection(true);syncUnits();
   metric('measured',status.sensors.temperature_c,2,'°C');metric('target',status.control.available?status.control.target_c:null,1,'°C');metric('gravity',status.sensors.gravity,status.sensors.gravity_unit==='sg'?4:2,status.sensors.gravity_unit==='sg'?'SG':status.sensors.gravity_unit==='plato'?'°P':'');
   $('gravityHint').textContent=status.sensors.gravity===null?'Sem leitura recente do iSpindel':status.sensors.gravity_unit==='unknown'?'Unidade não configurada no iSpindel':'Leitura recebida do iSpindel';
-  $('controlState').textContent=status.control.available?(status.control.wait_seconds?'Aguardando proteção · '+status.control.wait_seconds+' s':status.control.state_name):'Controlador sem resposta';
+  $('controlState').textContent=status.control.available?(status.control.wait_seconds?(status.control.cooler_on?'Resfriando · mínimo ligado: ':'Aguardando proteção · ')+status.control.wait_seconds+' s':status.control.state_name):'Controlador sem resposta';
   $('controlState').style.color=!status.control.available||status.control.state>=6?'var(--red)':'';
   const run=status.recipe,states=['Em espera','Em execução','Concluída','Falha'];
   $('runBadge').textContent=run.available?states[run.state]||'Indisponível':'Sem resposta';$('runBadge').className='badge'+(!run.available||run.state===3||!run.storage_ok?' warn':'');

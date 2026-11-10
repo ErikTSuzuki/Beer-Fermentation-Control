@@ -121,7 +121,7 @@ bool ispindel_receiver_latest(IspindelReading *reading) {
     *reading = (IspindelReading){.packet = {
         .header = {.gravityUnit = BREW_UNIT_SG, .sensorId = UINT32_MAX},
         .temperatureC = 19.5f, .tiltDegrees = 45, .gravity = 1.020f, .batteryV = 4.1f},
-        .receivedAt = xTaskGetTickCount()};
+        .receivedAt = xTaskGetTickCount(), .receivedAtUs = now};
     return remoteAvailable;
 }
 bool temperature_control_latest(TemperatureControlStatus *status) {

@@ -188,7 +188,7 @@ static int buildPayload(char *payload, size_t capacity) {
     const bool localOk = haveLocal && local.valid && isfinite(local.temperatureC) &&
         now - local.sampledAt <= pdMS_TO_TICKS(5000);
     const BrewTelemetry *p = &remote.packet;
-    const bool remoteOk = haveRemote && now - remote.receivedAt <= ISPINDEL_STALE_AFTER_TICKS &&
+    const bool remoteOk = haveRemote && ispindel_reading_is_current(&remote, nowUs) &&
         isfinite(p->temperatureC) && isfinite(p->tiltDegrees) && isfinite(p->gravity) && isfinite(p->batteryV);
     const bool controlOk = haveControl && nowUs >= control.updatedAtUs &&
         nowUs - control.updatedAtUs <= INT64_C(2000000);

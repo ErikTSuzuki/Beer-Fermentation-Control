@@ -10,8 +10,10 @@ bool temperature_control_settings_valid(const TemperatureControlSettings *s, flo
         s->heatingDifferentialC > 0.0f && s->coolingDifferentialC > 0.0f &&
         targetC - s->heatingDifferentialC >= s->minimumC &&
         targetC + s->coolingDifferentialC <= s->maximumC &&
-        s->compressorOffUs >= INT64_C(60000000) &&
+        s->compressorOffUs >= INT64_C(300000000) &&
         s->compressorOffUs <= INT64_C(3600000000) &&
+        s->compressorOnUs >= INT64_C(300000000) &&
+        s->compressorOnUs <= INT64_C(3600000000) &&
         s->changeoverUs >= INT64_C(1000000) &&
         s->changeoverUs <= INT64_C(300000000);
 }
@@ -61,11 +63,15 @@ TemperatureControlDecision temperature_control_logic_step(
     }
 
     if (logic->output != CONTROL_OUTPUT_OFF) {
-        const bool keepRunning = logic->output == CONTROL_OUTPUT_HEATER
+        const int64_t minimumOnWait = logic->output == CONTROL_OUTPUT_COOLER
+            ? remaining(nowUs, logic->coolerOnAtUs, settings->compressorOnUs) : 0;
+        const bool thermalDemand = logic->output == CONTROL_OUTPUT_HEATER
             ? measuredC < command.targetC : measuredC > command.targetC;
-        if (keepRunning) {
+        if (thermalDemand || minimumOnWait) {
             decision.output = logic->output;
             decision.state = logic->output == CONTROL_OUTPUT_HEATER ? CONTROL_HEATING : CONTROL_COOLING;
+            // Continua resfriando ate cumprir o minimo, mesmo atingindo o alvo.
+            if (!thermalDemand) decision.waitUs = minimumOnWait;
         } else {
             // Nunca inverte diretamente: esta iteracao apenas desliga.
             stopOutput(logic, nowUs);
@@ -93,6 +99,7 @@ TemperatureControlDecision temperature_control_logic_step(
     }
 
     logic->output = requested;
+    if (requested == CONTROL_OUTPUT_COOLER) logic->coolerOnAtUs = nowUs;
     decision.output = requested;
     decision.state = requested == CONTROL_OUTPUT_HEATER ? CONTROL_HEATING : CONTROL_COOLING;
     return decision;

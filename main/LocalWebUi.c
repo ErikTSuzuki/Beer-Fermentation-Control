@@ -142,8 +142,7 @@ static esp_err_t statusPage(httpd_req_t *request) {
     const bool controlOk = haveControl && recent(control.updatedAtUs, now, INT64_C(2000000));
     const bool recipeOk = haveRecipe && recent(recipe.updatedAtUs, now, INT64_C(2500000));
     const bool localOk = haveLocal && local.valid && recent(local.sampledAtUs, now, INT64_C(5000000));
-    const bool remoteOk = haveRemote && recent(remote.receivedAtUs, now,
-        (int64_t)CONFIG_BEER_ISPINDEL_STALE_SECONDS * 1000000);
+    const bool remoteOk = haveRemote && ispindel_reading_is_current(&remote, now);
     cJSON *root = cJSON_CreateObject();
     cJSON *sensors = root ? cJSON_AddObjectToObject(root, "sensors") : NULL;
     cJSON *controller = root ? cJSON_AddObjectToObject(root, "control") : NULL;

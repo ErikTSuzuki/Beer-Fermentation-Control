@@ -30,6 +30,7 @@ typedef struct {
     float coolingDifferentialC;
     int64_t compressorOffUs;
     int64_t changeoverUs;
+    int64_t compressorOnUs;
 } TemperatureControlSettings;
 
 typedef struct {
@@ -42,6 +43,7 @@ typedef struct {
     TemperatureControlOutput lastStoppedOutput;
     int64_t stoppedAtUs;
     int64_t coolerOffAtUs;
+    int64_t coolerOnAtUs;
 } TemperatureControlLogic;
 
 typedef struct {
