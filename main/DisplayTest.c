@@ -92,7 +92,8 @@ static void displayTask(void *context) {
         if (haveControl && nowUs >= status.updatedAtUs &&
             nowUs - status.updatedAtUs <= INT64_C(2000000)) {
             if (status.waitSeconds) {
-                snprintf(line, sizeof(line), "ALVO:%.1fC BLOQ:%lus", (double)status.targetC,
+                const char *format = status.coolerOn ? "ALVO:%.1fC LIG:%lus" : "ALVO:%.1fC BLOQ:%lus";
+                snprintf(line, sizeof(line), format, (double)status.targetC,
                          (unsigned long)status.waitSeconds);
             } else {
                 snprintf(line, sizeof(line), "ALVO:%.1fC %s", (double)status.targetC,
@@ -115,8 +116,8 @@ static void displayTask(void *context) {
 
         IspindelReading reading = {0};
         const bool haveRemote = ispindel_receiver_latest(&reading);
-        const bool remoteOk = haveRemote && xTaskGetTickCount() - reading.receivedAt <=
-            ISPINDEL_STALE_AFTER_TICKS;
+        const int64_t remoteNowUs = esp_timer_get_time();
+        const bool remoteOk = haveRemote && ispindel_reading_is_current(&reading, remoteNowUs);
         if (remoteOk) {
             const BrewTelemetry *p = &reading.packet;
             showLine(&remoteStatus, "STATUS: RECEBENDO", 0x07E0);

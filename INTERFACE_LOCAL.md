@@ -124,8 +124,9 @@ O contexto de `etapa-fermentacao` contem `receita`, `etapa`, `total_etapas`,
 No painel Ubidots da conta configurada, use `temperatura-local` e
 `temperatura-alvo` em um grafico, `densidade` em outro, e as novas variaveis
 para etapa e duracao. `estado-controle` continua indicando aquecimento,
-refrigeracao, bloqueios e falhas. Nao foi criado um dashboard na conta nem
-adicionado comando remoto: a configuracao desta entrega e local.
+refrigeracao, bloqueios e falhas. Nao foi criado um dashboard na conta.
+O recebimento remoto de receitas e cancelamento pela variavel `comando-receita`
+esta descrito em [UBIDOTS.md](UBIDOTS.md#receber-receitas-e-cancelamento-pelo-ubidots).
 
 Sem conexao externa, o painel remoto fica com as ultimas leituras recebidas;
 os timestamps indicam sua idade. A receita segue localmente, e a publicacao

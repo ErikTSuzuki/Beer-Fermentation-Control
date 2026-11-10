@@ -30,6 +30,7 @@ static const TemperatureControlSettings settings = {
     .heatingDifferentialC = CONFIG_BEER_CONTROL_HEATING_DIFF_CENTIC / 100.0f,
     .coolingDifferentialC = CONFIG_BEER_CONTROL_COOLING_DIFF_CENTIC / 100.0f,
     .compressorOffUs = (int64_t)CONFIG_BEER_CONTROL_COMPRESSOR_OFF_SECONDS * 1000000,
+    .compressorOnUs = (int64_t)CONFIG_BEER_CONTROL_COMPRESSOR_ON_SECONDS * 1000000,
     .changeoverUs = (int64_t)CONFIG_BEER_CONTROL_CHANGEOVER_SECONDS * 1000000,
 };
 
@@ -114,6 +115,9 @@ static void controlTask(void *context) {
                 const int64_t offAtUs = esp_timer_get_time();
                 logic.stoppedAtUs = offAtUs;
                 if (appliedOutput == CONTROL_OUTPUT_COOLER) logic.coolerOffAtUs = offAtUs;
+            } else if (decision.output == CONTROL_OUTPUT_COOLER) {
+                // O minimo ligado tambem comeca depois da escrita fisica.
+                logic.coolerOnAtUs = esp_timer_get_time();
             }
         }
         appliedOutput = decision.output;

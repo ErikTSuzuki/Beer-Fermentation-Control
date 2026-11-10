@@ -100,7 +100,7 @@ static void beginRecipe(const FermentationRecipe *candidate, int64_t nowUs) {
 static RecipeGravitySample gravitySample(void) {
     IspindelReading reading = {0};
     const bool have = ispindel_receiver_latest(&reading);
-    return (RecipeGravitySample){.valid = have,
+    return (RecipeGravitySample){.valid = have && ispindel_reading_is_current(&reading, esp_timer_get_time()),
         .unit = reading.packet.header.gravityUnit, .gravity = reading.packet.gravity,
         .receivedAtUs = reading.receivedAtUs, .sensorId = reading.packet.header.sensorId,
         .bootId = reading.packet.header.bootId, .sequence = reading.packet.header.sequence};

@@ -8,7 +8,7 @@
 #define RELAY_HEATER GPIO_NUM_32
 #define RELAY_COOLER GPIO_NUM_33
 // Confirme o nivel de acionamento do modulo. HIGH: altere para false.
-#define RELAY_ACTIVE_LOW true
+#define RELAY_ACTIVE_LOW false
 // Os GPIOs pertencem exclusivamente a tarefa TemperatureControl.
 
 #endif

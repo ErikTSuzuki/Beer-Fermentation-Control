@@ -21,10 +21,11 @@ menu "Beer Monitor - Wi-Fi and iSpindel"
     config BEER_ISPINDEL_STALE_SECONDS
         int "Maximum age of an iSpindel reading (seconds)"
         range 35 86400
-        default 1800
+        default 600
         help
-            Used by the display and cloud publishing. Set longer than the
-            iSpindel sleep interval; 1800 s supports the default 900 s interval.
+            Used by the display, local interface, recipes and cloud publishing.
+            Set longer than the iSpindel send/sleep interval. After 600 seconds
+            without a new reading the sensor is considered disconnected.
 
     config BEER_WIFI_UPLINK_ENABLED
         bool "Connect to an external Wi-Fi network"
@@ -94,11 +95,20 @@ menu "Beer Monitor - Temperature control"
 
     config BEER_CONTROL_COMPRESSOR_OFF_SECONDS
         int "Minimum compressor off time, including boot (seconds)"
-        range 60 3600
+        range 300 3600
         default 300
         help
             Set according to the refrigerator manufacturer. Never bypassed by
             target changes, sensor recovery or disabling/re-enabling control.
+
+    config BEER_CONTROL_COMPRESSOR_ON_SECONDS
+        int "Minimum compressor on time (seconds)"
+        range 300 3600
+        default 300
+        help
+            Keeps cooling on for at least this duration even after reaching
+            the target. Sensor/configuration/output faults and explicitly
+            disabling control still turn the outputs off immediately.
 
     config BEER_CONTROL_CHANGEOVER_SECONDS
         int "Both outputs off before switching heating/cooling (seconds)"

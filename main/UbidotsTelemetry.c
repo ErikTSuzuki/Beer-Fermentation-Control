@@ -12,7 +12,9 @@
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_timer.h"
@@ -23,6 +25,141 @@
 static const char *TAG = "UBIDOTS";
 static EventGroupHandle_t mqttEvents;
 #define MQTT_CONNECTED_BIT BIT0
+
+// Topico sem /lv: precisamos do timestamp e do contexto, nao so do numero.
+// Device logico separado: as dez variaveis de telemetria ja ocupam o limite STEM.
+#define COMMAND_TOPIC "/v1.6/devices/" CONFIG_BEER_UBIDOTS_DEVICE_LABEL "-comandos/comando-receita"
+#define COMMAND_BODY_MAX (RECIPE_JSON_MAX * 2 + 1024)
+#define COMMAND_MAX_AGE_MS INT64_C(120000)
+#define COMMAND_CLOCK_MIN_MS INT64_C(1704067200000) // 2024-01-01 UTC
+static char *commandBody;
+static size_t commandLength, commandReceived;
+static int64_t commandConnectedAtUs, commandNewestTimestampMs;
+static bool commandConnected;
+
+static void resetCommandBody(void) {
+    free(commandBody);
+    commandBody = NULL;
+    commandLength = commandReceived = 0;
+}
+
+static bool uniqueFields(const cJSON *object) {
+    if (!cJSON_IsObject(object)) return false;
+    for (const cJSON *a = object->child; a; a = a->next)
+        for (const cJSON *b = a->next; b; b = b->next)
+            if (!strcmp(a->string, b->string)) return false;
+    return true;
+}
+
+// Limita a profundidade antes do parser e impede strings truncadas por NUL.
+static bool commandStructureSafe(const char *body, size_t length) {
+    unsigned depth = 0;
+    bool quoted = false, escaped = false;
+    for (size_t i = 0; i < length; ++i) {
+        const char ch = body[i];
+        if (!ch) return false;
+        if (quoted) {
+            if (escaped) {
+                if (ch == 'u' && i + 4 < length && !memcmp(body + i + 1, "0000", 4)) return false;
+                escaped = false;
+            } else if (ch == '\\') escaped = true;
+            else if (ch == '"') quoted = false;
+        } else if (ch == '"') quoted = true;
+        else if (ch == '{' || ch == '[') { if (++depth > 3) return false; }
+        else if (ch == '}' || ch == ']') { if (!depth) return false; --depth; }
+    }
+    return !depth && !quoted;
+}
+
+static void dispatchCommand(const char *body, size_t length) {
+    if (!commandStructureSafe(body, length)) {
+        ESP_LOGW(TAG, "Comando Ubidots rejeitado: estrutura JSON invalida");
+        return;
+    }
+    cJSON *root = cJSON_ParseWithLengthOpts(body, length + 1, NULL, true);
+    const cJSON *value = cJSON_GetObjectItemCaseSensitive(root, "value");
+    const cJSON *timestamp = cJSON_GetObjectItemCaseSensitive(root, "timestamp");
+    const cJSON *context = cJSON_GetObjectItemCaseSensitive(root, "context");
+    const cJSON *profile = cJSON_GetObjectItemCaseSensitive(context, "recipe");
+    if (!uniqueFields(root) || (context && !uniqueFields(context)) ||
+        !cJSON_IsNumber(value) || (value->valuedouble != 1 && value->valuedouble != 2) ||
+        !cJSON_IsNumber(timestamp) || !isfinite(timestamp->valuedouble) ||
+        timestamp->valuedouble < COMMAND_CLOCK_MIN_MS ||
+        timestamp->valuedouble > 9007199254740991.0 ||
+        floor(timestamp->valuedouble) != timestamp->valuedouble ||
+        (value->valuedouble == 1 && (!cJSON_IsString(profile) || !profile->valuestring[0] ||
+            strlen(profile->valuestring) > RECIPE_JSON_MAX))) {
+        ESP_LOGW(TAG, "Comando Ubidots rejeitado: use value 1 + context.recipe (JSON texto), ou value 2; timestamp em ms obrigatorio");
+        cJSON_Delete(root);
+        return;
+    }
+    struct timeval clock;
+    const bool haveClock = gettimeofday(&clock, NULL) == 0;
+    const int64_t nowMs = haveClock ? (int64_t)clock.tv_sec * 1000 + clock.tv_usec / 1000 : 0;
+    const int64_t nowUs = esp_timer_get_time();
+    const int64_t sentMs = (int64_t)timestamp->valuedouble;
+    // A janela e calculada mesmo se NTP ainda nao tinha sincronizado ao conectar.
+    // Nao executa valores guardados antes desta conexao, nem repetidos neste boot.
+    const int64_t connectedMs = nowMs - (nowUs - commandConnectedAtUs) / 1000;
+    if (!commandConnected || nowUs < commandConnectedAtUs || nowMs < COMMAND_CLOCK_MIN_MS ||
+        sentMs <= connectedMs || sentMs <= commandNewestTimestampMs ||
+        sentMs > nowMs || nowMs - sentMs > COMMAND_MAX_AGE_MS) {
+        ESP_LOGW(TAG, "Comando Ubidots ignorado: antigo, repetido, futuro ou relogio NTP indisponivel");
+        cJSON_Delete(root);
+        return;
+    }
+    // Consome tambem pedidos recusados: nao reaplica automaticamente depois.
+    commandNewestTimestampMs = sentMs;
+    const bool start = value->valuedouble == 1;
+    const esp_err_t result = start
+        ? fermentation_recipe_submit_json(profile->valuestring, strlen(profile->valuestring))
+        : fermentation_recipe_cancel();
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "Comando Ubidots %s enfileirado (timestamp=%" PRId64 "); confira estado da receita",
+                 start ? "iniciar" : "cancelar", sentMs);
+    } else {
+        ESP_LOGW(TAG, "Comando Ubidots %s recusado: %s (timestamp=%" PRId64 ")",
+                 start ? "iniciar" : "cancelar", esp_err_to_name(result), sentMs);
+    }
+    cJSON_Delete(root);
+}
+
+static void receiveCommand(esp_mqtt_event_handle_t event) {
+    if (!event) return;
+    if (event->current_data_offset == 0) {
+        resetCommandBody();
+        if (!commandConnected || event->retain || !event->topic ||
+            event->topic_len != (int)strlen(COMMAND_TOPIC) ||
+            memcmp(event->topic, COMMAND_TOPIC, strlen(COMMAND_TOPIC))) return;
+        if (event->total_data_len <= 0 || event->total_data_len > COMMAND_BODY_MAX) {
+            ESP_LOGW(TAG, "Comando Ubidots rejeitado: tamanho excedido ou vazio");
+            return;
+        }
+        commandLength = (size_t)event->total_data_len;
+        commandBody = malloc(commandLength + 1);
+        if (!commandBody) {
+            resetCommandBody();
+            ESP_LOGW(TAG, "Comando Ubidots rejeitado: sem memoria");
+            return;
+        }
+    }
+    if (!commandBody) return;
+    if (event->retain || event->data_len <= 0 || !event->data ||
+        event->current_data_offset < 0 || (size_t)event->current_data_offset != commandReceived ||
+        event->total_data_len != (int)commandLength ||
+        (size_t)event->data_len > commandLength - commandReceived) {
+        resetCommandBody();
+        ESP_LOGW(TAG, "Comando Ubidots rejeitado: fragmentos inconsistentes");
+        return;
+    }
+    memcpy(commandBody + commandReceived, event->data, (size_t)event->data_len);
+    commandReceived += (size_t)event->data_len;
+    if (commandReceived == commandLength) {
+        commandBody[commandLength] = '\0';
+        dispatchCommand(commandBody, commandLength);
+        resetCommandBody();
+    }
+}
 
 static bool validLabel(const char *label) {
     const size_t length = strlen(label);
@@ -51,7 +188,7 @@ static int buildPayload(char *payload, size_t capacity) {
     const bool localOk = haveLocal && local.valid && isfinite(local.temperatureC) &&
         now - local.sampledAt <= pdMS_TO_TICKS(5000);
     const BrewTelemetry *p = &remote.packet;
-    const bool remoteOk = haveRemote && now - remote.receivedAt <= ISPINDEL_STALE_AFTER_TICKS &&
+    const bool remoteOk = haveRemote && ispindel_reading_is_current(&remote, nowUs) &&
         isfinite(p->temperatureC) && isfinite(p->tiltDegrees) && isfinite(p->gravity) && isfinite(p->batteryV);
     const bool controlOk = haveControl && nowUs >= control.updatedAtUs &&
         nowUs - control.updatedAtUs <= INT64_C(2000000);
@@ -130,14 +267,34 @@ static void onMqttEvent(void *arg, esp_event_base_t base, int32_t id, void *data
     const esp_mqtt_event_handle_t event = data;
     switch (id) {
         case MQTT_EVENT_CONNECTED:
+            resetCommandBody();
+            commandConnectedAtUs = esp_timer_get_time();
+            commandConnected = true;
             xEventGroupSetBits(mqttEvents, MQTT_CONNECTED_BIT);
             ESP_LOGI(TAG, "MQTT conectado ao Ubidots");
+            if (!event || esp_mqtt_client_subscribe(event->client, COMMAND_TOPIC, 1) < 0)
+                ESP_LOGW(TAG, "Falha ao assinar comandos Ubidots; nova tentativa na proxima conexao");
+            else
+                ESP_LOGI(TAG, "Recebimento de comandos solicitado: %s", COMMAND_TOPIC);
+            break;
+        case MQTT_EVENT_SUBSCRIBED:
+            if (event && event->data_len > 0 && event->data && (unsigned char)event->data[0] >= 0x80)
+                ESP_LOGW(TAG, "Ubidots recusou assinatura; confira variavel comando-receita e permissoes");
+            else
+                ESP_LOGI(TAG, "Assinatura MQTT confirmada; comandos: 1 iniciar, 2 cancelar");
+            break;
+        case MQTT_EVENT_DATA:
+            receiveCommand(event);
             break;
         case MQTT_EVENT_DISCONNECTED:
+            commandConnected = false;
+            resetCommandBody();
             xEventGroupClearBits(mqttEvents, MQTT_CONNECTED_BIT);
             ESP_LOGW(TAG, "MQTT desconectado; reconexao automatica em 30 s");
             break;
         case MQTT_EVENT_ERROR:
+            commandConnected = false;
+            resetCommandBody();
             xEventGroupClearBits(mqttEvents, MQTT_CONNECTED_BIT);
             if (event && event->error_handle &&
                 event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
@@ -249,7 +406,7 @@ void ubidots_telemetry_start(void) {
         ESP_LOGE(TAG, "Falha ao criar eventos MQTT");
         return;
     }
-    if (xTaskCreate(telemetryTask, "ubidots", 4096, NULL, 1, NULL) != pdPASS) {
+    if (xTaskCreate(telemetryTask, "ubidots", 8192, NULL, 1, NULL) != pdPASS) {
         vEventGroupDelete(mqttEvents);
         mqttEvents = NULL;
         ESP_LOGE(TAG, "Falha ao criar tarefa de telemetria");
