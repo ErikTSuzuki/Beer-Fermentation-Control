@@ -131,7 +131,7 @@ static void displayTask(void *context) {
             snprintf(line, sizeof(line), "INCLINACAO: %.2f GRAUS", (double)(p->tiltDegrees));
             showLine(&tilt, line, WHITE);
         } else {
-            showLine(&remoteStatus, "STATUS: DESCONECTADO", RED);
+            showLine(&remoteStatus, "ERRO: NAO ENCONTRADO", RED);
             showLine(&remoteTemp, "TEMP: -- C", WHITE);
             showLine(&gravity, "DENS: --", WHITE);
             showLine(&battery, "BATERIA: -- V", WHITE);
