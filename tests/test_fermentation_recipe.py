@@ -192,7 +192,7 @@ ADAPTER = r'''
 #define CHECK(x) do { assert(x); ++checks; } while (0)
 #define SEC(x) ((int64_t)(x)*1000000)
 struct MockQueue { unsigned size; bool full; unsigned char data[2048]; };
-static struct MockQueue queues[3];
+static struct MockQueue queues[4];
 static unsigned queueCount, checks, iteration, commits;
 static SavedRecipe blob, staging;
 static bool haveBlob, failSave, failCommit, failTask, failQueue, failOpen;
@@ -211,7 +211,7 @@ const char *esp_err_to_name(esp_err_t error) { (void)error; return "mock"; }
 int64_t esp_timer_get_time(void) { return now; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)(now/1000); }
 QueueHandle_t xQueueCreate(unsigned count, unsigned size) {
-    CHECK(count==1 && queueCount<3 && size<=sizeof(queues[0].data));
+    CHECK(count==1 && queueCount<sizeof(queues)/sizeof(queues[0]) && size<=sizeof(queues[0].data));
     if (failQueue && queueCount==1) return NULL;
     QueueHandle_t q=&queues[queueCount++]; q->size=size; return q;
 }
@@ -273,6 +273,35 @@ static void density(uint32_t sequence) {
 }
 void vTaskDelayUntil(TickType_t *wake, TickType_t period) {
     CHECK(period==1000 && wake); *wake+=period;
+    if (!strcmp(mode,"remote")) {
+        FermentationRecipeResult result;
+        CHECK(fermentation_recipe_remote_result(&result));
+        switch (iteration++) {
+            case 0:
+                CHECK(expect(RECIPE_RUNNING,0,20).revision==1);
+                CHECK(result.ticket==1 && result.error==ESP_OK && result.storageOk);
+                CHECK(fermentation_recipe_submit_remote(NULL,0,0,2,SEC(10))==ESP_OK);
+                break;
+            case 1:
+                CHECK(expect(RECIPE_RUNNING,0,20).revision==1);
+                CHECK(result.ticket==2 && result.error==ESP_ERR_INVALID_STATE);
+                CHECK(fermentation_recipe_submit_remote(NULL,0,1,3,now+SEC(1))==ESP_OK);
+                break;
+            case 2:
+                CHECK(expect(RECIPE_RUNNING,0,20).revision==1);
+                CHECK(result.ticket==3 && result.error==ESP_ERR_TIMEOUT);
+                CHECK(fermentation_recipe_submit_remote(NULL,0,1,4,SEC(10))==ESP_OK);
+                break;
+            case 3:
+                CHECK(expect(RECIPE_IDLE,0,20).revision==2 && !controlEnabled);
+                CHECK(result.ticket==4 && result.error==ESP_OK && result.storageOk);
+                CHECK(blob.state==RECIPE_IDLE && blob.reason==RECIPE_REASON_CANCELLED);
+                longjmp(finish,1);
+            default: assert(false);
+        }
+        now+=SEC(1);
+        return;
+    }
     if (!strcmp(mode,"resume")) {
         switch (iteration++) {
             case 0: expect(RECIPE_RUNNING,1,12); now=RECIPE_DAY_US; break;
@@ -344,7 +373,11 @@ int main(int argc, char **argv) {
             printf("Recipe startup fault checks: %u\n", checks); return 0;
         }
         if (!strcmp(mode,"resume")) CHECK(target==12 && controlEnabled); // restored before controller starts
-        if (!strcmp(mode,"normal") || failSave || failCommit) {
+        if (!strcmp(mode,"remote")) {
+            FermentationRecipeResult confirmation;
+            CHECK(fermentation_recipe_submit_remote(text,strlen(text),0,1,SEC(10))==ESP_OK);
+            CHECK(!fermentation_recipe_remote_result(&confirmation));
+        } else if (!strcmp(mode,"normal") || failSave || failCommit) {
             CHECK(fermentation_recipe_submit_json("{}",2)==ESP_ERR_INVALID_ARG);
             const char *invalidTarget="{\"version\":1,\"name\":\"Bad\",\"gravity_unit\":\"sg\",\"steps\":["
                 "{\"name\":\"A\",\"target_c\":20,\"max_days\":5},"
@@ -444,6 +477,8 @@ def main():
     for mode in ("normal", "resume", "completed", "cancelled", "corrupt", "save-fail",
                  "commit-fail", "queue-fail", "task-fail", "open-fail"):
         subprocess.run([str(adapter), mode], check=True, timeout=10)
+    remote = compile_test("adapter_remote", ADAPTER, ["-DCONFIG_BEER_LOCAL_MQTT=1"])
+    subprocess.run([str(remote), "remote"], check=True, timeout=10)
     auto = compile_test("adapter_auto", ADAPTER, ["-DCONFIG_BEER_RECIPE_START_EMBEDDED=1"])
     for mode in ("auto", "resume", "completed", "cancelled", "corrupt"):
         subprocess.run([str(auto), mode], check=True, timeout=10)

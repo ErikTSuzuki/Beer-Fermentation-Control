@@ -1,4 +1,4 @@
-# Beer Monitor: Wi-Fi hibrido e Ubidots
+# Wi-Fi e broker MQTT
 
 ## Arquitetura
 
@@ -9,7 +9,7 @@ iSpindel (ESP8266, STA) -- HTTP/JSON via Wi-Fi --> ESP32 (SoftAP)
                                                |
                                       Wi-Fi externo 2,4 GHz
                                                |
-                                        MQTT -> Ubidots
+                                        MQTT -> Mosquitto -> painel
 ```
 
 O ESP32 usa `WIFI_MODE_APSTA`: cria uma rede WPA2 local para um iSpindel
@@ -43,7 +43,7 @@ Em `idf.py menuconfig`, abra **Beer Monitor - Wi-Fi and iSpindel**:
   do iSpindel; o endereco do ESP32 e obtido como gateway DHCP.
 - **Maximum age of an iSpindel reading**: 1800 s por padrao. Escolha um
   valor maior que o intervalo de envio do iSpindel, com margem para falhas.
-  Esse limite vale tanto para a tela quanto para o envio a nuvem.
+  Esse limite vale tanto para a tela quanto para o envio ao painel.
 - **Connect to an external Wi-Fi network**: habilite e preencha o SSID e
   senha da rede externa de 2,4 GHz, diferentes da rede local do ESP32.
 - Em redes com usuario/senha, habilite **Use WPA2-Enterprise** e preencha
@@ -51,10 +51,9 @@ Em `idf.py menuconfig`, abra **Beer Monitor - Wi-Fi and iSpindel**:
   Autenticacao por portal cativo e EAP-TLS nao estao implementadas.
   A configuracao Enterprise existente nao inclui CA do servidor RADIUS.
 
-Em **Beer Monitor - Ubidots STEM**, preencha o token, device label e
-intervalo MQTT (300 s por padrao). SSID/senhas/token existentes no
-`sdkconfig` local sao preservados; as opcoes do AP recebem os padroes
-acima na reconfiguracao. Credenciais nao sao impressas nos logs.
+Configure **Beer Monitor - MQTT broker** conforme a seção MQTT abaixo.
+As credenciais ficam no `sdkconfig` local. As opções do AP são definidas
+separadamente em **Beer Monitor - Wi-Fi and iSpindel**.
 
 Para funcionar somente localmente, desabilite **Connect to an external
 Wi-Fi network**. Desabilitar somente MQTT mantem a conexao externa.
@@ -159,7 +158,7 @@ Resposta de sucesso, enviada somente depois de aceitar a leitura:
 
 O iSpindel exige HTTP `200` e um JSON com `accepted: true`, versao e os
 mesmos identificadores. Receber apenas uma resposta TCP ou HTTP 200 nao
-confirma a leitura. A confirmacao e local ao ESP32, nao ao Ubidots.
+confirma a leitura. A confirmação indica que o ESP32 recebeu a leitura.
 
 O ESP32 aceita corpos de ate 511 bytes, rejeita JSON malformado, campos
 obrigatorios ausentes, tipos incorretos, identificadores fora da faixa,
@@ -190,43 +189,49 @@ apos o ESP32 aceitar a leitura. As estruturas antigas sao usadas apenas
 internamente pela tela/nuvem; nenhum pacote binario e enviado neste enlace.
 Nao e necessario fixar MAC ou canal no transmissor.
 
-## Publicacao MQTT
+## Broker e painel
 
-- Broker: `industrial.api.ubidots.com`, porta `1883`, TCP sem TLS.
-- Topico: `/v1.6/devices/<device-label>`.
-- Usuario MQTT: token do Ubidots; senha vazia; MQTT 3.1.1, QoS 0,
-  `retain=false`, identificador unico baseado no MAC do ESP32.
-- Variaveis: `temperatura-local`, `temperatura-ispindel`, `inclinacao`,
-  `densidade`, `bateria`, `temperatura-alvo`, `estado-controle`,
-  `etapa-fermentacao`, `dias-etapa` e `dias-max-etapa`. A densidade
-  inclui unidade e sensor no contexto. O estado do controle inclui habilitacao,
-  validade do sensor, comandos dos reles e espera restante; os codigos estao
-  em [CONTROLE.md](CONTROLE.md). O estado pode ser publicado mesmo sem
-  leituras validas dos sensores; estados com mais de dois segundos sao omitidos.
-- A etapa inclui nomes da receita/etapa, estado, motivo, disponibilidade da
-  densidade e gravacao do progresso no contexto. Estados de receita com mais
-  de 2,5 segundos sao omitidos. Veja [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md)
-  para os campos e orientacoes do monitoramento remoto.
-- Leitura local com mais de 5 s e omitida; iSpindel usa o limite ajustavel
-  acima. Nao ha historico offline; cada publicacao usa as ultimas amostras
-  ainda validas. A mesma amostra pode aparecer em mais de uma publicacao
-  quando o sono do iSpindel for maior que o intervalo MQTT.
-- Falhas de publicacao tambem aguardam o intervalo. QoS 0 confirma envio
-  ao transporte local, sem confirmacao de armazenamento pelo broker.
+Em **Beer Monitor - MQTT broker**, configure a URI do PC na rede local,
+por exemplo `mqtt://IP_DO_PC:18883`, o dispositivo `fermentador01` e a senha
+do dispositivo criada pelo servidor em `.runtime/credentials.json`, no campo
+`MQTT_DEVICE_PASSWORD`. O usuário MQTT é o próprio identificador do dispositivo.
+O intervalo padrão de telemetria é de 15 segundos. O firmware aceita `mqtts://`
+com certificados confiáveis pelo bundle de certificados do ESP-IDF.
+
+No servidor, execute `python3 -B local.py start --mqtt-lan IP_DO_PC` na pasta
+do servidor para disponibilizar o MQTT ao ESP32. O painel abre em
+<http://127.0.0.1:8090> no próprio PC.
+
+| Tópico sob `cervejaria/v1/fermentadores/fermentador01` | Fluxo |
+|---|---|
+| `/telemetria` | ESP32 → coletor → InfluxDB e painel |
+| `/comandos/receita` | backend do painel → ESP32 |
+| `/estado/receita` | ESP32 → backend do painel |
+
+A telemetria usa QoS 1 sem retenção. Quando o relógio do sistema está válido,
+o ESP32 envia horário UTC. O coletor usa o horário de chegada quando necessário.
+
+O ESP32 divulga o estado, os limites térmicos e a última receita. Cada pedido
+usa um identificador, a sessão MQTT, uma validade curta e a revisão da receita.
+O firmware verifica esses dados e usa o mesmo executor da interface local.
+A resposta só confirma a aplicação depois que o executor processa o pedido.
+Para cancelamento, o ESP32 também verifica se o controlador reporta ambos os
+relés desligados. O painel sinaliza falhas ao gravar a receita e pedidos sem
+resposta. O operador cancela uma receita em execução antes de iniciar outra.
 
 ## Teste nas placas
 
 1. Confira `SoftAP ... ativo` e `Recepcao HTTP/JSON ativa` no ESP32.
 2. Confira `Wi-Fi conectado` e `Leitura confirmada pelo ESP32 via HTTP/JSON` no iSpindel; a tela
    deve exibir os mesmos valores de temperatura, inclinacao e bateria.
-3. Confira IP externo, `MQTT conectado ao Ubidots` e os pontos no dashboard.
+3. Confira IP externo, `MQTT conectado` e os pontos no dashboard.
 4. Desligue o roteador: o iSpindel deve continuar enviando ao AP local.
 5. Religue o roteador em outro canal (por exemplo 1 -> 11). Aguarde a
    reconexao do ESP32 e o proximo ciclo do iSpindel, que deve reencontrar
    o SSID sem alterar configuracoes de canal.
 6. Desligue o ESP32 durante um ciclo: o iSpindel deve encerrar as tentativas
    e dormir; religue e confira o retorno no proximo ciclo.
-7. Verifique que a tela/nuvem respeitam o prazo de validade configurado.
+7. Verifique que a tela e o painel respeitam o prazo de validade configurado.
 
 Os dois firmwares foram compilados no ambiente local (ESP-IDF 6.0 e
 Arduino ESP8266 3.1.2). Os testes executam o codigo real do transmissor
@@ -249,156 +254,3 @@ Os arquivos gerados pelo teste ficam em `build/hybrid-tests`.
 Compilacao e testes no computador nao comprovam alcance, consumo de
 bateria ou convivencia do radio. Esses pontos exigem os testes acima.
 
-## Receber receitas e cancelamento pelo Ubidots
-
-O cliente MQTT agora assina, a cada conexao, o topico
-`/v1.6/devices/<device-label>-comandos/comando-receita`, com QoS 1. A assinatura usa o
-JSON completo, sem `/lv`, para receber `value`, `timestamp` e `context`.
-O envio das dez variaveis de telemetria, seu intervalo e a interface local
-permanecem iguais. Nao ha nova pagina nem servidor proprio.
-
-Crie um segundo dispositivo **logico** com API label igual ao do firmware
-acrescido de `-comandos`. Exemplo: `teste-oficina` recebe comandos por
-`teste-oficina-comandos`. Nesse dispositivo, crie uma variavel **raw** com
-API label `comando-receita`. Um valor inicial `0` nao executa nenhuma acao.
-Nao e outro equipamento: o mesmo ESP32 publica no primeiro dispositivo e
-escuta o segundo, com o mesmo token. Isso preserva as dez variaveis existentes,
-pois o [STEM limita cada dispositivo a dez variaveis](https://help.ubidots.com/en/articles/639806-plans-billing-what-is-the-difference-between-ubidots-and-ubidots-stem).
-E necessario ter uma vaga de dispositivo disponivel na conta.
-
-| Campo | Iniciar receita | Cancelar e desligar |
-|---|---|---|
-| `value` | `1` | `2` |
-| `timestamp` | Unix UTC em milissegundos | Unix UTC em milissegundos |
-| `context.recipe` | Receita JSON como **string**, ate 4096 bytes UTF-8 | Dispensavel |
-
-A receita usa o formato de `recipes/exemplo.json`. Envie seu JSON como texto
-em `context.recipe`, nao como objeto aninhado. O envelope recebido aceita ate
-9216 bytes para acomodar aspas escapadas; mensagens maiores que o buffer MQTT
-de 2048 bytes sao remontadas antes de interpretar.
-
-Regras do recebimento:
-
-- O relogio do sistema precisa ter hora valida pelo NTP ja existente. A hora
-  exibida pelo RTC sozinha nao comprova sincronizacao do sistema nesta partida.
-- O timestamp deve ser posterior a conexao MQTT atual, ter no maximo 120 segundos
-  e nao estar no futuro. Sincronize o relogio do computador; alternativamente,
-  omita o timestamp na publicacao HTTP para o Ubidots atribui-lo ao receber.
-- Cada pedido deve ter timestamp maior que o anterior. Timestamps iguais ou
-  anteriores sao ignorados neste boot, inclusive depois de um pedido recusado.
-- Mensagens MQTT retidas sao ignoradas. Reconectar/reiniciar nao executa o
-  ultimo comando antigo. Pedidos enviados offline nao sao executados depois;
-  confira o estado e envie um pedido novo quando a conexao voltar.
-- Iniciar/cancelar usam as mesmas filas e validacoes da pagina local. Cancele
-  uma receita em andamento antes de iniciar outra.
-- O log `enfileirado` confirma a entrada na fila, nao a execucao ou a gravacao
-  em flash. Confirme pelos logs `RECIPE`, estado local ou telemetria existente.
-  Nao foi adicionada variavel de resposta.
-
-### Teste na placa, sem pagina propria
-
-1. No terminal ESP-IDF, dentro de `beer_monitor`, compile e grave o ESP32:
-
-   ```powershell
-   idf.py build
-   idf.py -p COM6 flash monitor
-   ```
-
-   Ajuste `COM6` para sua placa. O iSpindel nao precisa mudar. No primeiro
-   teste, use a bancada com as cargas dos reles desconectadas.
-
-2. Aguarde Wi-Fi externo, sincronizacao NTP e o log
-   `Assinatura MQTT confirmada; comandos: 1 iniciar, 2 cancelar`.
-   Se criou a variavel depois da conexao, reconecte o ESP32.
-
-3. Em outro PowerShell, na pasta `beer_monitor`, informe o API label do
-   dispositivo (`BEER_UBIDOTS_DEVICE_LABEL` do firmware) e o token da conta:
-
-   ```powershell
-   $device = Read-Host 'API label do dispositivo (o mesmo do firmware)'
-   $secureToken = Read-Host 'Token do Ubidots' -AsSecureString
-   $headers = @{
-       'X-Auth-Token' = [System.Net.NetworkCredential]::new('', $secureToken).Password
-   }
-   $commandDevice = "$device-comandos"
-   $uri = "https://industrial.api.ubidots.com/api/v1.6/devices/$commandDevice/"
-   ```
-
-4. Sem receita ativa, envie o exemplo. Este comando inicia uma receita real:
-
-   ```powershell
-   $recipeText = Get-Content .\recipes\exemplo.json -Raw -Encoding UTF8 |
-       ConvertFrom-Json | ConvertTo-Json -Depth 10 -Compress
-   $startBody = @{
-       'comando-receita' = @{
-           value = 1
-           timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-           context = @{ recipe = $recipeText }
-       }
-   } | ConvertTo-Json -Depth 10 -Compress
-   Invoke-RestMethod -Method Post -Uri $uri -Headers $headers `
-       -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($startBody))
-   ```
-
-   Aguarde `Comando Ubidots iniciar enfileirado` e depois
-   `Receita 'Exemplo 20-12-3 C' iniciada`. Confira alvo de 20 C e etapa 1.
-   A pagina local atualiza em seu ciclo habitual; no Ubidots, confira
-   `etapa-fermentacao`, seu contexto e `temperatura-alvo` na proxima publicacao
-   (ate cinco minutos na configuracao atual). O sucesso HTTP confirma somente
-   que o Ubidots recebeu o pedido.
-
-5. Repita apenas o `Invoke-RestMethod` com o mesmo `$startBody`: o ESP32 deve
-   ignorar o timestamp repetido. Um pedido com timestamp novo enquanto ha
-   receita ativa deve ser recusado sem substituir a receita.
-
-6. Cancele com um novo timestamp:
-
-   ```powershell
-   $cancelBody = @{
-       'comando-receita' = @{
-           value = 2
-           timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-       }
-   } | ConvertTo-Json -Depth 10 -Compress
-   Invoke-RestMethod -Method Post -Uri $uri -Headers $headers `
-       -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($cancelBody))
-   ```
-
-   Aguarde `Receita cancelada; controle termico desativado` e confira os dois
-   comandos dos reles desligados. Depois pode enviar uma receita nova.
-
-7. Teste receita invalida (`context.recipe` igual a `'{}'`), timestamp de tres
-   minutos atras e reconexao. Nenhum deve iniciar receita indevidamente. Ao
-   reiniciar, uma receita ativa pode retomar pela persistencia existente;
-   isso nao significa que o comando antigo foi reexecutado.
-
-O MQTT continua na porta 1883, sem TLS, conforme a configuracao anterior.
-Esta alteracao nao modifica o transporte nem acrescenta permissoes por usuario.
-
-### Teste automatizado sem placa
-
-```powershell
-python -B tests/test_ubidots_commands.py
-```
-
-Aceita o caminho do GCC como argumento. No Windows com MSYS2/MinGW64:
-
-```powershell
-$env:PATH = 'C:\msys64\mingw64\bin;' + $env:PATH
-python -B tests/test_ubidots_commands.py C:/msys64/mingw64/bin/gcc.exe
-```
-
-Executa o callback real, a remontagem e o parser real de receitas, com MQTT,
-relogio e fila simulados. Cobre inicio, cancelamento, receita ativa/invalida,
-duplicatas, validade, NTP ausente, retencao, reconexao, limites, fragmentos
-inconsistentes e falha de memoria. Nao acessa a nuvem nem uma placa. Os arquivos
-gerados ficam em `build/ubidots-command-tests`.
-
-## Referencias
-
-- [Espressif: coexistencia AP/STA e canal compartilhado](https://docs.espressif.com/projects/esp-idf/en/v5.4/esp32/api-guides/wifi.html)
-- [ESP8266: associacao, DHCP e gateway](https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/station-class.html)
-- [Ubidots: broker e autenticacao MQTT](https://help.ubidots.com/en/articles/9350714-ubidots-mqtt-broker)
-
-- [Espressif: servidor HTTP](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32/api-reference/protocols/esp_http_server.html)
-- [Componente cJSON](https://components.espressif.com/components/espressif/cjson/versions/1.7.19/readme)

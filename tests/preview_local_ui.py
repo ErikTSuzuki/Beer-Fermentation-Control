@@ -62,7 +62,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                            "confirmation_count": 0, "gravity_available": True, "storage_ok": True,
                            "reason": 4 if cancelled else 1 if enabled else 0, "last_error": 0},
                 "capabilities": {"target_min_c": -4.5, "target_max_c": 39.5, "max_steps": 16, "max_json_bytes": 4096},
-                "cloud_configured": True, "uplink_connected": True,
+                "mqtt_configured": True, "uplink_connected": True,
             })
         else:
             self.reply({"error": "not_found"}, 404)

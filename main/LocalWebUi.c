@@ -153,10 +153,10 @@ static esp_err_t statusPage(httpd_req_t *request) {
         return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
     }
     cJSON_AddBoolToObject(root, "uplink_connected", wifi_station_is_connected());
-#if CONFIG_BEER_UBIDOTS_ENABLED
-    cJSON_AddBoolToObject(root, "cloud_configured", CONFIG_BEER_UBIDOTS_TOKEN[0] && CONFIG_BEER_WIFI_SSID[0]);
+#if CONFIG_BEER_LOCAL_MQTT
+    cJSON_AddBoolToObject(root, "mqtt_configured", CONFIG_BEER_MQTT_URI[0] && CONFIG_BEER_MQTT_PASSWORD[0]);
 #else
-    cJSON_AddBoolToObject(root, "cloud_configured", false);
+    cJSON_AddBoolToObject(root, "mqtt_configured", false);
 #endif
     numberOrNull(sensors, "temperature_c", local.temperatureC, localOk);
     numberOrNull(sensors, "ispindel_temperature_c", remote.packet.temperatureC, remoteOk);
@@ -209,38 +209,9 @@ static esp_err_t currentRecipe(httpd_req_t *request) {
         httpd_resp_set_type(request, "application/json");
         return httpd_resp_send(request, "null", HTTPD_RESP_USE_STRLEN);
     }
-    cJSON *root = cJSON_CreateObject();
-    cJSON *steps = root ? cJSON_AddArrayToObject(root, "steps") : NULL;
-    if (!steps) {
-        free(recipe); cJSON_Delete(root);
-        return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-    }
-    cJSON_AddNumberToObject(root, "version", 1);
-    cJSON_AddStringToObject(root, "name", recipe->name);
-    cJSON_AddStringToObject(root, "gravity_unit", recipe->gravityUnit == BREW_UNIT_SG ? "sg" : "plato");
-    cJSON_AddNumberToObject(root, "gravity_confirm_samples", recipe->confirmationSamples);
-    cJSON_AddStringToObject(root, "on_complete", "hold");
-    for (unsigned i = 0; i < recipe->stepCount; ++i) {
-        const FermentationStep *step = &recipe->steps[i];
-        cJSON *item = cJSON_CreateObject();
-        if (!item || !cJSON_AddItemToArray(steps, item)) {
-            cJSON_Delete(item); cJSON_Delete(root); free(recipe);
-            return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-        }
-        cJSON_AddStringToObject(item, "name", step->name);
-        cJSON_AddNumberToObject(item, "target_c", round(step->targetC * 1000000.0) / 1000000.0);
-        cJSON_AddNumberToObject(item, "max_days", (double)step->maximumUs / RECIPE_DAY_US);
-        numberOrNull(item, "gravity_limit", round(step->gravityLimit * 1000000.0) / 1000000.0, step->hasGravityLimit);
-        if (cJSON_GetArraySize(item) != 4) {
-            cJSON_Delete(root); free(recipe);
-            return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-        }
-    }
+    cJSON *root = fermentation_recipe_json(recipe);
     free(recipe);
-    if (cJSON_GetArraySize(root) != 6) {
-        cJSON_Delete(root);
-        return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-    }
+    if (!root) return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
     return sendObject(request, root);
 }
 

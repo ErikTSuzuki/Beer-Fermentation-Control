@@ -13,7 +13,7 @@
 #include "TemperatureControl.h"
 #include "FermentationRecipe.h"
 #include "CaptivePortal.h"
-#include "UbidotsTelemetry.h"
+#include "BrokerMqtt.h"
 
 static const char *TAG = "ISPINDEL";
 
@@ -43,7 +43,7 @@ void app_main(void) {
         ESP_LOGW(TAG, "Portal automatico indisponivel: %s; acesso direto continua ativo",
                  esp_err_to_name(portalResult));
     display_test_start();
-    ubidots_telemetry_start();
+    broker_mqtt_start();
 
     ESP_LOGI(TAG, "Receptor Wi-Fi/HTTP pronto; porta %u", BREW_HTTP_PORT);
 }

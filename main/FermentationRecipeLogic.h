@@ -54,6 +54,8 @@ typedef struct {
 bool fermentation_recipe_valid(const FermentationRecipe *recipe);
 bool fermentation_recipe_gravity_valid(uint8_t unit, float value);
 bool fermentation_recipe_parse(const char *json, size_t length, FermentationRecipe *recipe);
+struct cJSON;
+struct cJSON *fermentation_recipe_json(const FermentationRecipe *recipe);
 void fermentation_recipe_begin(FermentationRecipeProgress *progress, int64_t nowUs);
 // true quando muda de etapa ou conclui. Nunca acessa GPIO, rede, RTC ou flash.
 bool fermentation_recipe_tick(const FermentationRecipe *recipe,

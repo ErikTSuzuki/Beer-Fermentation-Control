@@ -125,18 +125,18 @@ Veja [RECEITAS.md](RECEITAS.md). A pagina e a API HTTP locais para configurar
 perfis estao em [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md). Cancele uma receita
 ativa antes de alterar o controle manualmente.
 
-## Tela e nuvem
+## Tela e painel MQTT
 
 A tela mostra alvo e estado em uma linha acima da temperatura local, ou a
 contagem de bloqueio enquanto aguarda. Dados do iSpindel continuam visiveis.
 
-O Ubidots recebe duas novas variaveis: `temperatura-alvo` e `estado-controle`.
+O ESP32 publica dois campos de controle via MQTT, `temperatura-alvo` e `estado-controle`.
 O contexto do estado contem habilitacao, validade do sensor, comandos dos
 reles e segundos restantes. A publicacao do controle ocorre mesmo que nao
 haja amostras validas dos sensores, desde que o estado do controlador seja
 recente (ate dois segundos). Se o estado estiver vencido, ele e omitido.
-Sem internet, o controle continua; a publicacao espera a reconexao e o
-intervalo configurado. Nao foi adicionada notificacao instantanea de alarmes.
+Durante a queda da rede, o controle continua e a publicação retoma após
+a reconexão com o broker. Nao foi adicionada notificacao instantanea de alarmes.
 
 | Codigo | Estado |
 |---:|---|

@@ -14,7 +14,6 @@ CJSON = PROJECT / "managed_components/espressif__cjson/cJSON"
 
 MOCK = r'''
 #include "control_mock.h"
-typedef void *EventGroupHandle_t;
 typedef void *esp_mqtt_client_handle_t;
 typedef const char *esp_event_base_t;
 typedef struct {
@@ -24,24 +23,27 @@ typedef struct {
     struct { int reconnect_timeout_ms, timeout_ms; } network;
     struct { int size; } buffer;
     struct { int priority, stack_size; } task;
+    struct { int limit; } outbox;
 } esp_mqtt_client_config_t;
 typedef struct { int error_type, connect_return_code; } mock_mqtt_error;
 typedef struct {
     mock_mqtt_error *error_handle;
     esp_mqtt_client_handle_t client;
     char *data, *topic;
-    int data_len, total_data_len, current_data_offset, topic_len;
+    int data_len, total_data_len, current_data_offset, topic_len, msg_id;
     bool retain;
 } *esp_mqtt_event_handle_t;
 #define BIT0 1
 #define WIFI_IF_STA 0
 #define configTICK_RATE_HZ 1000
 #define CONFIG_BEER_ISPINDEL_STALE_SECONDS 1800
-#define CONFIG_BEER_UBIDOTS_ENABLED 1
-#define CONFIG_BEER_UBIDOTS_DEVICE_LABEL "test"
-#define CONFIG_BEER_UBIDOTS_TOKEN "test"
+#define CONFIG_BEER_LOCAL_MQTT 1
+#define CONFIG_MBEDTLS_CERTIFICATE_BUNDLE 0
+#define CONFIG_BEER_MQTT_DEVICE "test"
+#define CONFIG_BEER_MQTT_PASSWORD "test"
+#define CONFIG_BEER_MQTT_URI "mqtt://localhost:18883"
 #define CONFIG_BEER_WIFI_SSID "test"
-#define CONFIG_BEER_UBIDOTS_INTERVAL_SECONDS 300
+#define CONFIG_BEER_MQTT_INTERVAL_SECONDS 300
 #define ESP_LOGW(tag, ...) mock_log(tag, __VA_ARGS__)
 #define MQTT_EVENT_CONNECTED 1
 #define MQTT_EVENT_DISCONNECTED 2
@@ -49,13 +51,12 @@ typedef struct {
 #define MQTT_EVENT_SUBSCRIBED 4
 #define MQTT_EVENT_DATA 5
 #define MQTT_ERROR_TYPE_CONNECTION_REFUSED 1
+#define ESP_ERR_TIMEOUT 5
 #define MQTT_PROTOCOL_V_3_1_1 4
 #define ESP_EVENT_ANY_ID -1
-int xEventGroupSetBits(EventGroupHandle_t, int);
-int xEventGroupClearBits(EventGroupHandle_t, int);
-int xEventGroupGetBits(EventGroupHandle_t);
-EventGroupHandle_t xEventGroupCreate(void);
-void vEventGroupDelete(EventGroupHandle_t);
+void esp_fill_random(void *, size_t);
+int xQueueSend(QueueHandle_t, const void *, unsigned);
+int esp_mqtt_client_enqueue(esp_mqtt_client_handle_t, const char *, const char *, int, int, int, bool);
 esp_err_t esp_wifi_get_mac(int, uint8_t *);
 esp_mqtt_client_handle_t esp_mqtt_client_init(const esp_mqtt_client_config_t *);
 esp_err_t esp_mqtt_client_register_event(esp_mqtt_client_handle_t, int,
@@ -71,9 +72,7 @@ void vTaskDelay(TickType_t);
 # SDK functions outside the payload/command paths; kept explicit for PE/MinGW,
 # whose linker can resolve unused references before discarding their sections.
 SDK_STUBS = r'''
-int xEventGroupGetBits(EventGroupHandle_t group) { (void)group; return 0; }
-EventGroupHandle_t xEventGroupCreate(void) { return (void *)1; }
-void vEventGroupDelete(EventGroupHandle_t group) { (void)group; }
+void esp_fill_random(void *out, size_t size) { memset(out, 0, size); }
 esp_err_t esp_wifi_get_mac(int interface, uint8_t *mac) { (void)interface; memset(mac, 0, 6); return ESP_OK; }
 esp_mqtt_client_handle_t esp_mqtt_client_init(const esp_mqtt_client_config_t *config) { (void)config; return (void *)1; }
 esp_err_t esp_mqtt_client_register_event(esp_mqtt_client_handle_t client, int id,
@@ -94,7 +93,10 @@ int xTaskCreate(void (*task)(void *), const char *name, unsigned stack, void *ar
 '''
 
 HARNESS = r'''
-#include "UbidotsTelemetry.c"
+#include <sys/time.h>
+static int invalidClock(struct timeval *clock, void *zone) { (void)clock; (void)zone; return -1; }
+#define gettimeofday invalidClock
+#include "BrokerMqtt.c"
 #include <assert.h>
 #include <stdlib.h>
 
@@ -103,13 +105,9 @@ static const int64_t now = INT64_C(10000000);
 static int scenario;
 void mock_log(const char *tag, const char *fmt, ...) { (void)tag; (void)fmt; }
 const char *esp_err_to_name(esp_err_t error) { (void)error; return "mock"; }
-int xEventGroupSetBits(EventGroupHandle_t group, int bits) { (void)group; return bits; }
-int xEventGroupClearBits(EventGroupHandle_t group, int bits) { (void)group; return bits; }
 int esp_mqtt_client_subscribe(esp_mqtt_client_handle_t client, const char *topic, int qos) {
     (void)client; (void)topic; (void)qos; return 1;
 }
-esp_err_t fermentation_recipe_submit_json(const char *json, size_t length) { (void)json; (void)length; abort(); }
-esp_err_t fermentation_recipe_cancel(void) { abort(); }
 int64_t esp_timer_get_time(void) { return now; }
 TickType_t xTaskGetTickCount(void) { return (TickType_t)(now / 1000); }
 bool local_temperature_latest(LocalTemperature *sample) {
@@ -176,7 +174,7 @@ def main():
         raise SystemExit("gcc required; run test_temperature_control.py first.")
     BUILD.mkdir(parents=True, exist_ok=True)
     (BUILD / "telemetry_mock.h").write_text('#ifndef TELEMETRY_MOCK_H\n#define TELEMETRY_MOCK_H\n' + MOCK + '\n#endif\n', encoding="utf-8")
-    for name in ["sdkconfig.h", "esp_wifi.h", "mqtt_client.h", "freertos/event_groups.h"]:
+    for name in ["sdkconfig.h", "esp_wifi.h", "mqtt_client.h", "esp_random.h", "freertos/queue.h"]:
         path = BUILD / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('#include "telemetry_mock.h"\n', encoding="utf-8")
@@ -184,7 +182,7 @@ def main():
     source.write_text(HARNESS + SDK_STUBS, encoding="utf-8")
     executable = BUILD / "telemetry_test"
     subprocess.run([
-        compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-ffunction-sections", "-fdata-sections",
+        compiler, "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror", "-ffunction-sections", "-fdata-sections",
         "-I" + str(BUILD), "-I" + str(BUILD.parent), "-I" + str(PROJECT / "main"),
         "-I" + str(CJSON), str(source), str(CJSON / "cJSON.c"), "-Wl,--gc-sections", "-lm", "-o", str(executable),
     ], check=True)

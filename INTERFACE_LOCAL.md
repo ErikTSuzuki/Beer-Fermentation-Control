@@ -1,4 +1,4 @@
-# Configurar localmente e acompanhar pelo Ubidots
+# Configurar localmente e acompanhar pelo painel MQTT
 
 O ESP32 serve uma pagina de configuracao no proprio Wi-Fi local, sem precisar
 de aplicativo instalado ou acesso a internet. O controle e a receita continuam
@@ -19,8 +19,8 @@ em tarefas FreeRTOS independentes do navegador.
    de dias e, opcionalmente, densidade limite. A unidade pode ser SG ou Plato.
 5. Confira a curva e clique em **Salvar e iniciar receita**. Aguarde a mensagem
    confirmando que a receita esta salva e em execucao.
-6. Feche a pagina e acompanhe o lote no seu painel do Ubidots. O ESP32 precisa
-   estar conectado a rede externa e configurado para publicar na conta.
+6. Acompanhe o lote no painel do servidor. O ESP32 precisa alcançar o broker
+   pela rede externa ao AP, conforme [MQTT.md](MQTT.md).
 
 A pagina mostra temperatura medida, alvo, densidade, comandos dos reles,
 etapa e dias decorridos/maximos. As leituras locais se atualizam a cada dois
@@ -51,7 +51,7 @@ no Chrome/Safari ou no navegador habitual.
 
 O portal nao intercepta HTTPS nem apresenta certificados de outros sites.
 As respostas DNS ficam restritas ao IP e a interface do AP, com TTL zero;
-o resolvedor da interface STA usado pelo Ubidots/NTP permanece separado.
+o resolvedor da interface STA usado pelo MQTT/NTP permanece separado.
 O iSpindel continua usando `POST /ispindel` diretamente no IP do gateway,
 sem login de navegador ou redirecionamento. A tarefa de controle termico
 tem prioridade maior que DNS e HTTP.
@@ -93,16 +93,12 @@ Configure em `menuconfig`:
   dispositivos de configuracao simultaneos.
 - **Beer Monitor - Local recipe interface**: senha propria opcional de
   acesso ao painel (8 a 63 bytes UTF-8). Campo vazio usa a senha do AP.
-- **Beer Monitor - Ubidots STEM**: token, device label e intervalo de envio.
+- **Beer Monitor - MQTT broker**: URI, identificador, senha e intervalo de envio.
 
-As credenciais da rede externa e do Ubidots continuam sendo configuradas na
+As credenciais da rede externa e do broker MQTT continuam sendo configuradas na
 instalacao; esta pagina edita as receitas. O login local nao salva a senha
-em armazenamento do navegador e nao a envia ao Ubidots. A senha e mantida
+em armazenamento do navegador e nao a envia ao broker MQTT. A senha e mantida
 apenas em memoria enquanto a pagina esta aberta. **Sair** limpa esse acesso.
-
-O texto sobre envio ao Ubidots indica configuracao e conexao ao Wi-Fi externo;
-nao e uma confirmacao de armazenamento de cada leitura na nuvem. Consulte
-os timestamps do painel e os logs de MQTT para verificar a recepcao.
 
 ## Monitoramento remoto
 
@@ -121,18 +117,10 @@ O contexto de `etapa-fermentacao` contem `receita`, `etapa`, `total_etapas`,
 1 em execucao, 2 concluida e 3 falha. Os motivos sao: 0 nenhum, 1 inicio,
 2 densidade, 3 prazo e 4 cancelamento.
 
-No painel Ubidots da conta configurada, use `temperatura-local` e
-`temperatura-alvo` em um grafico, `densidade` em outro, e as novas variaveis
-para etapa e duracao. `estado-controle` continua indicando aquecimento,
-refrigeracao, bloqueios e falhas. Nao foi criado um dashboard na conta.
-O recebimento remoto de receitas e cancelamento pela variavel `comando-receita`
-esta descrito em [UBIDOTS.md](UBIDOTS.md#receber-receitas-e-cancelamento-pelo-ubidots).
-
-Sem conexao externa, o painel remoto fica com as ultimas leituras recebidas;
-os timestamps indicam sua idade. A receita segue localmente, e a publicacao
-retoma quando ha conexao. Nao ha historico offline armazenado para reenviar.
-Dez variaveis a cada cinco minutos correspondem a aproximadamente 2880 pontos
-por dia. Confira a franquia da conta antes de reduzir o intervalo.
+O painel do servidor exibe temperatura, densidade, etapa e estado do
+controlador. O editor também pode iniciar e cancelar receitas via MQTT.
+Acompanhe a confirmação do ESP32 antes de enviar outro comando. Os
+tópicos e a configuração estão em [MQTT.md](MQTT.md).
 
 ## Integracao HTTP
 
@@ -191,7 +179,7 @@ segundos. A interface nao inicia o exemplo automaticamente.
 
 Na placa, valide o acesso simultaneo do iSpindel e celular, inicio e
 cancelamento, operacao sem navegador/internet, retomada apos reiniciar e
-recepcao das novas variaveis no Ubidots. Os testes de computador nao substituem
+recepcao da telemetria no painel MQTT. Os testes de computador nao substituem
 essa verificacao de rede, cargas e equipamentos reais.
 Confira tambem a oferta da pagina de entrada no celular, tanto com o roteador
 externo ligado quanto desligado. Se o aparelho guardou uma concessao DHCP

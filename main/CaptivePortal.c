@@ -17,7 +17,7 @@ static const char *TAG = "CAPTIVE";
 static bool started;
 
 esp_err_t captive_portal_configure_dhcp(esp_netif_t *ap) {
-    // Evita configurar por engano o resolvedor global/STA usado pelo Ubidots.
+    // Evita configurar por engano o resolvedor global/STA usado pelo MQTT.
     if (!ap || ap != esp_netif_get_handle_from_ifkey("WIFI_AP_DEF")) return ESP_ERR_INVALID_ARG;
     esp_netif_ip_info_t info;
     esp_err_t result = esp_netif_get_ip_info(ap, &info);

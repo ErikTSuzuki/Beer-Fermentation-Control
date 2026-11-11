@@ -170,10 +170,11 @@ substitui um lote salvo. A opcao nao impede a retomada de uma receita ativa.
 O editor visual e o upload HTTP local agora estao implementados: veja
 [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md). O operador conecta-se ao AP do
 ESP32 e configura/inicia a receita pelo navegador, sem recompilar ou
-reiniciar. O envio remoto ao Ubidots inclui etapa e dias; nao ha comando MQTT.
+reiniciar. O painel do servidor também inicia e cancela receitas via MQTT.
+Veja a configuração em [MQTT.md](MQTT.md).
 
 A tela e a pagina local mostram etapa, dias decorridos/maximos e conclusao/
-falha. Temperatura alvo, etapa e dias sao publicados no Ubidots; a API C e os
+falha. Temperatura alvo, etapa e dias sao publicados no broker MQTT; a API C e os
 logs continuam disponiveis.
 
 ## Verificacao

@@ -149,7 +149,7 @@ menu "Beer Monitor - Local recipe interface"
         default ""
         help
             8-63 characters. Used only on the local AP interface, never sent
-            to Ubidots or logged. Empty uses BEER_AP_PASSWORD. This HTTP UI
+            to the MQTT broker or logged. Empty uses BEER_AP_PASSWORD. This HTTP UI
             relies on the protected local WPA2 network and rejects requests
             from the uplink, foreign origins and unrelated Host headers.
 endmenu
@@ -166,41 +166,40 @@ menu "Beer Monitor - Fermentation recipe"
             absent, invalid or unchanged gravity. Final temperature is held.
 endmenu
 
-menu "Beer Monitor - Ubidots STEM"
-
-    config BEER_UBIDOTS_ENABLED
-        bool "Enable Ubidots MQTT telemetry"
+menu "Beer Monitor - MQTT broker"
+    config BEER_LOCAL_MQTT
+        bool "Enable MQTT telemetry and recipe commands"
         depends on BEER_WIFI_UPLINK_ENABLED
         default y
         help
-            Sends sensor readings over MQTT/TCP port 1883, without TLS, like
-            the Arduino example. Empty credentials keep
-            the receiver running locally without attempting cloud connections.
+            Uses the external Wi-Fi for the MQTT broker. Empty broker settings
+            leave the controller and local interface available.
 
-    if BEER_UBIDOTS_ENABLED
+    if BEER_LOCAL_MQTT
 
-    config BEER_UBIDOTS_TOKEN
-        string "Ubidots STEM token"
+    config BEER_MQTT_URI
+        string "Broker URI"
         default ""
         help
-            Copy the token from API Credentials in your STEM account.
-            Stored in the local sdkconfig and firmware; never logged.
+            Use mqtt://PC_LAN_IP:18883 on the local network or mqtts://
+            with a trusted certificate. Keep credentials out of the URI.
 
-    config BEER_UBIDOTS_DEVICE_LABEL
-        string "Ubidots device API label"
-        default "beer-monitor"
+    config BEER_MQTT_DEVICE
+        string "MQTT device identifier and username"
+        default "fermentador01"
         help
-            Use lowercase letters, digits, hyphens and underscores only.
-            Use a different label for each physical monitor.
+            Up to 40 lowercase letters, digits and hyphens. Start with
+            a letter or digit. Use the identifier registered on the server.
 
-    config BEER_UBIDOTS_INTERVAL_SECONDS
-        int "Interval between upload attempts (seconds)"
-        range 120 86400
-        default 300
+    config BEER_MQTT_PASSWORD
+        string "MQTT device password"
+        default ""
         help
-            Ten variables every 300 seconds consume about 2880 dots/day.
-            Check your account allowance before reducing this interval.
-            Publish errors also wait this interval. QoS 0, retain disabled.
+            Stored in the local sdkconfig and firmware. Never logged.
 
+    config BEER_MQTT_INTERVAL_SECONDS
+        int "Telemetry interval (seconds)"
+        range 5 3600
+        default 15
     endif
 endmenu

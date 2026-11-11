@@ -13,7 +13,7 @@
 #include "freertos/task.h"
 
 static const char *TAG = "RECIPE";
-static QueueHandle_t commands, statuses, profiles;
+static QueueHandle_t commands, statuses, profiles, remoteResults;
 static nvs_handle_t storage;
 static bool storageOpen, storageOk;
 static esp_err_t lastError;
@@ -21,9 +21,15 @@ static FermentationRecipe recipe;
 static FermentationRecipeProgress progress;
 static int64_t lastSaveAttemptUs;
 static bool pendingSave;
+static uint32_t revision;
 
 typedef enum { RECIPE_COMMAND_START, RECIPE_COMMAND_CANCEL } CommandKind;
-typedef struct { CommandKind kind; FermentationRecipe recipe; } RecipeCommand;
+typedef struct {
+    CommandKind kind;
+    FermentationRecipe recipe;
+    uint32_t expectedRevision, ticket;
+    int64_t expiresAtUs;
+} RecipeCommand;
 typedef struct {
     uint32_t magic, version;
     FermentationRecipe recipe;
@@ -37,10 +43,9 @@ static bool targetsValid(const FermentationRecipe *candidate) {
     return true;
 }
 
-static void disableControl(void) {
+static bool disableControl(void) {
     TemperatureControlStatus status;
-    if (temperature_control_latest(&status))
-        (void)temperature_control_set_target(status.targetC, false);
+    return temperature_control_latest(&status) && temperature_control_set_target(status.targetC, false);
 }
 
 static bool applyTarget(void) {
@@ -73,7 +78,7 @@ static void publishStatus(bool gravityAvailable, int64_t nowUs) {
         .stepIndex = progress.stepIndex, .stepCount = recipe.stepCount,
         .gravityUnit = recipe.gravityUnit, .confirmationCount = progress.confirmationCount,
         .gravityAvailable = gravityAvailable, .storageOk = storageOk,
-        .lastError = lastError, .updatedAtUs = nowUs};
+        .lastError = lastError, .updatedAtUs = nowUs, .revision = revision};
     memcpy(status.recipeName, recipe.name, sizeof(status.recipeName));
     if (recipe.stepCount && progress.stepIndex < recipe.stepCount) {
         const FermentationStep *step = &recipe.steps[progress.stepIndex];
@@ -87,14 +92,15 @@ static void publishStatus(bool gravityAvailable, int64_t nowUs) {
     xQueueOverwrite(statuses, &status);
 }
 
-static void beginRecipe(const FermentationRecipe *candidate, int64_t nowUs) {
+static bool beginRecipe(const FermentationRecipe *candidate, int64_t nowUs) {
     recipe = *candidate;
     xQueueOverwrite(profiles, &recipe);
     fermentation_recipe_begin(&progress, nowUs);
     saveProgress(nowUs);
-    (void)applyTarget();
+    const bool applied = applyTarget();
     ESP_LOGI(TAG, "Receita '%s' iniciada: etapa 1/%u '%s', alvo=%.2f C",
              recipe.name, recipe.stepCount, recipe.steps[0].name, (double)recipe.steps[0].targetC);
+    return applied;
 }
 
 static RecipeGravitySample gravitySample(void) {
@@ -113,18 +119,27 @@ static void recipeTask(void *context) {
     const int64_t maxAge = (int64_t)CONFIG_BEER_ISPINDEL_STALE_SECONDS * 1000000;
     for (;;) {
         int64_t nowUs = esp_timer_get_time();
+        FermentationRecipeResult result = {0};
         if (xQueueReceive(commands, &command, 0) == pdTRUE) {
-            if (command.kind == RECIPE_COMMAND_CANCEL) {
+            result.ticket = command.ticket;
+            if (command.ticket && nowUs >= command.expiresAtUs) {
+                result.error = ESP_ERR_TIMEOUT;
+            } else if (command.ticket && command.expectedRevision != revision) {
+                result.error = ESP_ERR_INVALID_STATE;
+            } else if (command.kind == RECIPE_COMMAND_CANCEL) {
+                ++revision;
                 // Cancela mesmo se o armazenamento estiver falhando.
                 progress.state = RECIPE_IDLE;
                 progress.reason = RECIPE_REASON_CANCELLED;
-                disableControl();
+                if (!disableControl()) result.error = ESP_FAIL;
                 saveProgress(nowUs);
                 ESP_LOGI(TAG, "Receita cancelada; controle termico desativado");
             } else if (progress.state != RECIPE_RUNNING) {
-                beginRecipe(&command.recipe, nowUs);
+                ++revision;
+                if (!beginRecipe(&command.recipe, nowUs)) result.error = ESP_FAIL;
             } else {
                 lastError = ESP_ERR_INVALID_STATE;
+                result.error = ESP_ERR_INVALID_STATE;
                 ESP_LOGW(TAG, "Receita em andamento: cancele antes de iniciar outra");
             }
         }
@@ -149,6 +164,10 @@ static void recipeTask(void *context) {
             saveProgress(nowUs);
         }
         publishStatus(gravityAvailable, nowUs);
+        if (result.ticket) {
+            result.storageOk = storageOk;
+            xQueueOverwrite(remoteResults, &result);
+        }
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(1000));
     }
 }
@@ -191,6 +210,9 @@ esp_err_t fermentation_recipe_start(void) {
     statuses = commands ? xQueueCreate(1, sizeof(FermentationRecipeStatus)) : NULL;
     profiles = statuses ? xQueueCreate(1, sizeof(FermentationRecipe)) : NULL;
     if (!commands || !statuses || !profiles) goto noMemory;
+#if CONFIG_BEER_LOCAL_MQTT
+    remoteResults = xQueueCreate(1, sizeof(FermentationRecipeResult));
+#endif
     esp_err_t result = nvs_open("fermentation", NVS_READWRITE, &storage);
     storageOpen = result == ESP_OK;
     if (storageOpen) result = restoreProgress();
@@ -218,38 +240,51 @@ noMemory:
     if (commands) vQueueDelete(commands);
     if (statuses) vQueueDelete(statuses);
     if (profiles) vQueueDelete(profiles);
+    if (remoteResults) vQueueDelete(remoteResults);
     commands = statuses = profiles = NULL;
+    remoteResults = NULL;
     disableControl();
     return ESP_ERR_NO_MEM;
 }
 
-esp_err_t fermentation_recipe_submit_json(const char *json, size_t length) {
+static esp_err_t enqueueCommand(const char *json, size_t length,
+                               uint32_t expectedRevision, uint32_t ticket, int64_t expiresAtUs) {
     if (!commands) return ESP_ERR_INVALID_STATE;
     RecipeCommand *command = calloc(1, sizeof(*command));
     if (!command) return ESP_ERR_NO_MEM;
-    if (!fermentation_recipe_parse(json, length, &command->recipe) || !targetsValid(&command->recipe)) {
-        free(command);
-        return ESP_ERR_INVALID_ARG;
+    command->kind = json ? RECIPE_COMMAND_START : RECIPE_COMMAND_CANCEL;
+    command->expectedRevision = expectedRevision;
+    command->ticket = ticket;
+    command->expiresAtUs = expiresAtUs;
+    esp_err_t result = ESP_OK;
+    if (json) {
+        FermentationRecipeStatus status;
+        if (!fermentation_recipe_parse(json, length, &command->recipe) || !targetsValid(&command->recipe))
+            result = ESP_ERR_INVALID_ARG;
+        else if (!fermentation_recipe_latest(&status) || status.state == RECIPE_RUNNING)
+            result = ESP_ERR_INVALID_STATE;
     }
-    FermentationRecipeStatus status;
-    if (!fermentation_recipe_latest(&status) || status.state == RECIPE_RUNNING) {
-        free(command);
-        return ESP_ERR_INVALID_STATE;
-    }
-    command->kind = RECIPE_COMMAND_START;
-    const bool queued = xQueueSend(commands, command, 0) == pdTRUE;
+    if (result == ESP_OK && xQueueSend(commands, command, 0) != pdTRUE) result = ESP_ERR_TIMEOUT;
     free(command);
-    return queued ? ESP_OK : ESP_ERR_TIMEOUT;
+    return result;
+}
+
+esp_err_t fermentation_recipe_submit_json(const char *json, size_t length) {
+    return json ? enqueueCommand(json, length, 0, 0, 0) : ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t fermentation_recipe_cancel(void) {
-    if (!commands) return ESP_ERR_INVALID_STATE;
-    RecipeCommand *command = calloc(1, sizeof(*command));
-    if (!command) return ESP_ERR_NO_MEM;
-    command->kind = RECIPE_COMMAND_CANCEL;
-    const bool queued = xQueueSend(commands, command, 0) == pdTRUE;
-    free(command);
-    return queued ? ESP_OK : ESP_ERR_TIMEOUT;
+    return enqueueCommand(NULL, 0, 0, 0, 0);
+}
+
+esp_err_t fermentation_recipe_submit_remote(const char *json, size_t length,
+    uint32_t revision, uint32_t ticket, int64_t expiresAtUs) {
+    if (!remoteResults || !ticket) return ESP_ERR_INVALID_STATE;
+    return enqueueCommand(json, length, revision, ticket, expiresAtUs);
+}
+
+bool fermentation_recipe_remote_result(FermentationRecipeResult *result) {
+    return remoteResults && xQueueReceive(remoteResults, result, 0) == pdTRUE;
 }
 
 bool fermentation_recipe_latest(FermentationRecipeStatus *status) {
