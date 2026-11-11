@@ -167,21 +167,7 @@ Uma execucao salva, mesmo concluida ou cancelada, tem precedencia sobre o
 arquivo incorporado. Editar o arquivo ou desligar a opcao de autoinicio nao
 substitui um lote salvo. A opcao nao impede a retomada de uma receita ativa.
 
-O editor visual e o upload HTTP local agora estao implementados: veja
-[INTERFACE_LOCAL.md](INTERFACE_LOCAL.md). O operador conecta-se ao AP do
-ESP32 e configura/inicia a receita pelo navegador, sem recompilar ou
-reiniciar. O painel do servidor também inicia e cancela receitas via MQTT.
-Veja a configuração em [MQTT.md](MQTT.md).
-
-A tela e a pagina local mostram etapa, dias decorridos/maximos e conclusao/
-falha. Temperatura alvo, etapa e dias sao publicados no broker MQTT; a API C e os
-logs continuam disponiveis.
-
-## Verificacao
-
-`python3 tests/test_fermentation_recipe.py` compila e executa o parser real,
-a logica real e a tarefa real com simulacoes de FreeRTOS, NVS e sensores.
-Os testes cobrem os 20 dias do exemplo por tempo simulado, densidade
-confirmada/repetida/vencida/ausente/incorreta, limites de JSON, prazo absoluto,
-retomada da etapa, cancelamento, falhas de flash e criacao da tarefa, e a
-prioridade de execucoes salvas sobre o autoinicio do exemplo.
+O editor da interface local está disponível pelo AP do ESP32. O painel do
+servidor também inicia e cancela receitas via MQTT. Consulte o
+[README](README.md#usar-a-interface-local) para o acesso local e
+[MQTT.md](MQTT.md) para configurar o broker.

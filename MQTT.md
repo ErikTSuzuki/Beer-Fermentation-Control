@@ -1,136 +1,57 @@
 # Wi-Fi e broker MQTT
 
-## Arquitetura
-
-```text
-iSpindel (ESP8266, STA) -- HTTP/JSON via Wi-Fi --> ESP32 (SoftAP)
-                                               |
-                                          ESP32 (STA)
-                                               |
-                                      Wi-Fi externo 2,4 GHz
-                                               |
-                                        MQTT -> Mosquitto -> painel
-```
-
-O ESP32 usa `WIFI_MODE_APSTA`: cria uma rede WPA2 local para um iSpindel
-(um iSpindel e ate tres dispositivos de configuracao) e conecta a interface
-STA ao roteador. A pagina local de receitas esta em [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md).
-O portal cativo anuncia DNS somente aos clientes desse AP e tenta oferecer
-a pagina de receitas ao conectar; nao altera o DNS externo usado pelo MQTT.
-O iSpindel nao precisa acessar a internet. Nao ha NAT/compartilhamento de
-internet; o proprio ESP32 publica as leituras por MQTT. DS18B20 local,
-tela e RTC continuam usando as tarefas existentes. Os reles agora pertencem
-a tarefa de controle termico; veja [CONTROLE.md](CONTROLE.md).
-
-AP e STA compartilham um unico radio e o mesmo canal. O SoftAP inicia no
-canal 6 e acompanha automaticamente o canal do roteador ao associar.
-Nao ha alternancia manual de canal para publicar na nuvem. Uma busca ou
-mudanca de canal pode interromper brevemente o enlace local; o iSpindel
-busca o SSID ao acordar e pode refazer a associacao durante o envio.
-Na queda do roteador, o AP local permanece ativo; nao forcamos retorno
-ao canal 6 enquanto houver clientes locais. A rede externa e tentada
-novamente a cada 30 s, independentemente de MQTT estar habilitado.
+O iSpindel envia leituras HTTP/JSON ao ESP32 pela rede local `BeerMonitor`.
+Pela rede do roteador, o ESP32 publica a telemetria no Mosquitto e recebe
+comandos do painel. O backend grava as leituras no InfluxDB.
 
 ## Configurar o ESP32
 
-Em `idf.py menuconfig`, abra **Beer Monitor - Wi-Fi and iSpindel**:
+Em `idf.py menuconfig`, abra **Beer Monitor - Wi-Fi and iSpindel**.
+Configure a rede própria do ESP32, usada pelo iSpindel e pela página local,
+e habilite a conexão do ESP32 à rede Wi-Fi de 2,4 GHz que alcança o broker.
+O AP usa `192.168.50.1/24` por padrão. Use uma sub-rede diferente da do
+roteador. AP e STA compartilham um canal e o AP acompanha o roteador.
 
-- **Local Wi-Fi SSID**: `BeerMonitor` por padrao.
-- **Local Wi-Fi password**: `beer-monitor` por padrao (senha de exemplo;
-  substitua na configuracao e use a mesma senha no portal do iSpindel).
-- **Local AP IPv4 address**: `192.168.50.1`, mascara `/24`. Escolha uma
-  sub-rede diferente da usada pelo roteador externo. O DHCP atribui o IP
-  do iSpindel; o endereco do ESP32 e obtido como gateway DHCP.
-- **Maximum age of an iSpindel reading**: 1800 s por padrao. Escolha um
-  valor maior que o intervalo de envio do iSpindel, com margem para falhas.
-  Esse limite vale tanto para a tela quanto para o envio ao painel.
-- **Connect to an external Wi-Fi network**: habilite e preencha o SSID e
-  senha da rede externa de 2,4 GHz, diferentes da rede local do ESP32.
-- Em redes com usuario/senha, habilite **Use WPA2-Enterprise** e preencha
-  usuario, senha do usuario e identidade EAP opcional (vazia = usuario).
-  Autenticacao por portal cativo e EAP-TLS nao estao implementadas.
-  A configuracao Enterprise existente nao inclui CA do servidor RADIUS.
+Em **Beer Monitor - MQTT broker**, configure a URI, o dispositivo, a senha
+e o intervalo de publicação. Na instalação local, use
+`mqtt://IP_DO_PC:18883` e o dispositivo `fermentador01`. O identificador
+também é o usuário MQTT. A senha local fica no campo
+`MQTT_DEVICE_PASSWORD` de `.runtime/credentials.json` na pasta do servidor.
+O intervalo padrão é de 15 segundos. O firmware aceita `mqtts://` com
+certificados confiáveis pelo bundle do ESP-IDF.
 
-Configure **Beer Monitor - MQTT broker** conforme a seção MQTT abaixo.
-As credenciais ficam no `sdkconfig` local. As opções do AP são definidas
-separadamente em **Beer Monitor - Wi-Fi and iSpindel**.
+Na instalação do servidor fora deste repositório, inicie o broker pela
+interface de rede local com `python3 -B local.py start --mqtt-lan IP_DO_PC`.
+O painel abre em <http://127.0.0.1:8090> no próprio PC. O servidor também
+tem uma configuração Docker Compose. Consulte o README da instalação do
+servidor para a implantação em contêineres.
 
-Para funcionar somente localmente, desabilite **Connect to an external
-Wi-Fi network**. Desabilitar somente MQTT mantem a conexao externa.
-Recompile sempre antes de gravar; binarios antigos de diagnostico em
-`build/local_canal6` ainda usam a arquitetura anterior.
+## Tópicos
 
-```powershell
-idf.py build
-idf.py -p COM6 flash monitor
-```
+| Tópico sob `cervejaria/v1/fermentadores/fermentador01` | Fluxo |
+|---|---|
+| `/telemetria` | ESP32 → coletor → InfluxDB e painel |
+| `/comandos/receita` | Backend do painel → ESP32 |
+| `/estado/receita` | ESP32 → backend do painel |
 
-Ajuste a porta serial ao seu ESP32. Nenhuma placa e gravada pela compilacao.
+A telemetria inclui temperaturas, inclinação, bateria, densidade e estado
+do controlador e da receita. Usa QoS 1 sem retenção. O ESP32 envia
+horário UTC quando o relógio do sistema está válido. O coletor usa a
+hora de chegada como alternativa.
 
-## Hora do RTC
+O ESP32 informa o estado, os limites térmicos e a última receita. O comando
+leva um identificador, a sessão MQTT, uma validade curta e a revisão da
+receita. O painel só confirma a operação após a resposta do ESP32.
+No cancelamento, o firmware também verifica o estado dos dois relés.
+O painel informa falhas de gravação e falta de confirmação. O formato
+da receita é o mesmo da [interface local](README.md#usar-a-interface-local)
+e está descrito em [RECEITAS.md](RECEITAS.md).
 
-O ESP32 inicia SNTP em `pool.ntp.org` depois de obter IP na rede externa.
-Ao receber uma sincronizacao, grava a hora de Brasilia no DS3232M e a
-tela passa a mostrar esse horario. O fuso fica em `main/RtcConfig.h`:
-`RTC_TIMEZONE="BRT3"` (formato POSIX, UTC-03:00 sem horario de verao).
-O cliente repete a sincronizacao conforme `CONFIG_LWIP_SNTP_UPDATE_DELAY`
-(uma hora por padrao) e e reiniciado quando a conexao Wi-Fi retorna.
+## Comunicação com o iSpindel
 
-Procure `RTC sincronizado por NTP (Brasilia): ...` no monitor. Sem acesso
-ao servidor NTP, o modulo continua fornecendo a hora que ja possui; uma
-hora valida nao e substituida pela hora da compilacao. Se o RTC perdeu a
-hora, a compilacao ainda serve como ajuste aproximado ate chegar o NTP.
-As notificacoes de rede nao acessam I2C: toda leitura e gravacao ocorre
-na tarefa do RTC, com nova tentativa quando uma gravacao falha.
-
-Teste local: `python tests/test_rtc_clock.py`. Ele cobre o fuso, viradas
-de data/ano, funcionamento offline, reconexao e repeticao de gravacoes.
-
-## Configurar e compilar o iSpindel
-
-O firmware neste workspace esta em `firmware_spidnel/iSpindel`.
-
-1. Grave o novo firmware e abra o portal de configuracao por duplo reset.
-2. Selecione a rede **local do ESP32** (`BeerMonitor` por padrao) e informe
-   sua senha. Substitua as credenciais antigas do roteador, caso existam.
-   O firmware usa o SSID/senha salvos no portal; nao usa o campo Server/API
-   para escolher o destinatario deste enlace.
-3. Ajuste **Update Interval (s)**. Foi removida a sobrescrita de bancada de
-   10 s: agora vale o intervalo salvo (padrao original: 900 s).
-4. Salve a configuracao e saia do portal. No primeiro ciclo apos salvar,
-   o fluxo original usa 1 s de sono para teste; os demais usam o valor salvo.
-
-Sem SSID salvo, `pio/src/BrewWifi.h` possui os mesmos padroes de SSID/senha
-do AP do ESP32. Esses valores sao apenas reserva para configuracao vazia;
-eles nao substituem uma rede antiga ja salva no portal. Calibracao e
-polinomio de densidade continuam no portal. A unidade continua `unknown`
-ate ajustar `brewDensityUnit` conforme o polinomio (SG ou Plato).
-
-O PlatformIO e as dependencias ja estao em `.pio/`. No PowerShell, a partir
-da pasta do iSpindel:
-
-```powershell
-$env:PYTHONPATH = Join-Path $PWD '.pio/tooling'
-$env:PLATFORMIO_CORE_DIR = Join-Path $PWD '.pio/core'
-$env:PLATFORMIO_BUILD_FLAGS = '-I.pio/build-support'
-python -m platformio run -e d1_mini_standalone
-```
-
-O resultado e `.pio/build/d1_mini_standalone/firmware.bin`.
-A integracao AWS legada inclui `secrets.h`; o ambiente local existente
-possui um cabecalho com certificados vazios em `.pio/build-support`.
-O fluxo ativo Wi-Fi/HTTP nao usa AWS. Em outro ambiente, esse cabecalho
-e as dependencias devem ser preparados antes da compilacao.
-
-## Protocolo e recuperacao
-
-O transporte ativo usa **HTTP sobre TCP**, porta `80`, com
-`POST /ispindel` e `Content-Type: application/json`. O iSpindel usa o IP do
-gateway recebido por DHCP: por padrao, `http://192.168.50.1/ispindel`.
-Recompile e grave **ambos** os dispositivos. Firmwares antigos ESP-NOW ou
-UDP nao sao compativeis com esse receptor HTTP/JSON.
-
-Exemplo de corpo da requisicao (nomes dos campos diferenciam maiusculas):
+No portal do iSpindel, configure o SSID e a senha do AP do ESP32. O
+transmissor usa como destino o gateway recebido por DHCP e publica em
+`POST /ispindel`, na porta `80`, com `Content-Type: application/json`.
 
 ```json
 {
@@ -146,111 +67,21 @@ Exemplo de corpo da requisicao (nomes dos campos diferenciam maiusculas):
 }
 ```
 
-`gravity_unit`: `0` = desconhecida, `1` = SG, `2` = Plato. Os identificadores
-sao inteiros positivos de 32 bits; `boot_id` muda a cada despertar e
-`sequence` identifica a leitura dentro da mesma execucao. A versao e `1`.
+A unidade de densidade usa `0` para desconhecida, `1` para SG e `2` para
+Plato. O receptor devolve HTTP 200 com `accepted: true`, a versão e os
+mesmos `sensor_id`, `boot_id` e `sequence`. Uma retransmissão idêntica
+recebe a confirmação sem duplicar nem renovar a leitura. Ajuste a
+validade máxima no ESP32 para superar o intervalo do iSpindel com margem.
 
-Resposta de sucesso, enviada somente depois de aceitar a leitura:
+## Relógio e verificação
 
-```json
-{"accepted":true,"version":1,"sensor_id":1193046,"boot_id":123,"sequence":1}
-```
+O ESP32 sincroniza o relógio do sistema por SNTP quando o roteador permite
+o acesso ao servidor de hora e grava a hora de Brasília no RTC. As opções
+estão em [RtcConfig.h](main/RtcConfig.h). O controle térmico e a contagem
+da receita continuam no ESP32 durante quedas da rede.
 
-O iSpindel exige HTTP `200` e um JSON com `accepted: true`, versao e os
-mesmos identificadores. Receber apenas uma resposta TCP ou HTTP 200 nao
-confirma a leitura. A confirmação indica que o ESP32 recebeu a leitura.
-
-O ESP32 aceita corpos de ate 511 bytes, rejeita JSON malformado, campos
-obrigatorios ausentes, tipos incorretos, identificadores fora da faixa,
-valores nao finitos e leituras fora dos limites dos sensores. Campos
-repetidos e objetos aninhados sao rejeitados. O primeiro MAC de sensor
-valido fica selecionado ate reiniciar. Conexoes destinadas ao IP externo
-sao fechadas antes de ler HTTP; o remetente precisa estar associado e
-possuir um IP atribuido pelo DHCP do AP local. O servidor nao usa TLS;
-a rede local utiliza WPA2.
-
-Respostas de erro incluem `accepted: false`: `400` para dados invalidos,
-`403` para origem nao autorizada, `409` para outro sensor ou sequencia
-reutilizada com valores diferentes, `413` para tamanho invalido, `415`
-para outro Content-Type e `408` para corpo incompleto/tempo excedido.
-
-O iSpindel aguarda ate 15 s por associacao/DHCP e faz ate tres requisicoes
-por associacao, com timeout de 2 s nas operacoes de rede. Em falhas de
-conexao, timeout, resposta incorreta ou erro transitorio, repete o mesmo
-JSON e pode refazer uma vez a associacao com busca do SSID. Erros de
-dados/configuracao (`400`, `403`, `409`, `413`, `415`, `422`) encerram as
-tentativas daquele ciclo. Depois do sucesso ou do limite de tentativas,
-desconecta e volta ao sono configurado. Nao existe fila persistente:
-uma leitura sem confirmacao pode ser perdida.
-
-Uma retransmissao identica recebe novamente HTTP 200, sem duplicar o
-contador/log nem renovar a idade da amostra. Isso cobre a perda da resposta
-apos o ESP32 aceitar a leitura. As estruturas antigas sao usadas apenas
-internamente pela tela/nuvem; nenhum pacote binario e enviado neste enlace.
-Nao e necessario fixar MAC ou canal no transmissor.
-
-## Broker e painel
-
-Em **Beer Monitor - MQTT broker**, configure a URI do PC na rede local,
-por exemplo `mqtt://IP_DO_PC:18883`, o dispositivo `fermentador01` e a senha
-do dispositivo criada pelo servidor em `.runtime/credentials.json`, no campo
-`MQTT_DEVICE_PASSWORD`. O usuário MQTT é o próprio identificador do dispositivo.
-O intervalo padrão de telemetria é de 15 segundos. O firmware aceita `mqtts://`
-com certificados confiáveis pelo bundle de certificados do ESP-IDF.
-
-No servidor, execute `python3 -B local.py start --mqtt-lan IP_DO_PC` na pasta
-do servidor para disponibilizar o MQTT ao ESP32. O painel abre em
-<http://127.0.0.1:8090> no próprio PC.
-
-| Tópico sob `cervejaria/v1/fermentadores/fermentador01` | Fluxo |
-|---|---|
-| `/telemetria` | ESP32 → coletor → InfluxDB e painel |
-| `/comandos/receita` | backend do painel → ESP32 |
-| `/estado/receita` | ESP32 → backend do painel |
-
-A telemetria usa QoS 1 sem retenção. Quando o relógio do sistema está válido,
-o ESP32 envia horário UTC. O coletor usa o horário de chegada quando necessário.
-
-O ESP32 divulga o estado, os limites térmicos e a última receita. Cada pedido
-usa um identificador, a sessão MQTT, uma validade curta e a revisão da receita.
-O firmware verifica esses dados e usa o mesmo executor da interface local.
-A resposta só confirma a aplicação depois que o executor processa o pedido.
-Para cancelamento, o ESP32 também verifica se o controlador reporta ambos os
-relés desligados. O painel sinaliza falhas ao gravar a receita e pedidos sem
-resposta. O operador cancela uma receita em execução antes de iniciar outra.
-
-## Teste nas placas
-
-1. Confira `SoftAP ... ativo` e `Recepcao HTTP/JSON ativa` no ESP32.
-2. Confira `Wi-Fi conectado` e `Leitura confirmada pelo ESP32 via HTTP/JSON` no iSpindel; a tela
-   deve exibir os mesmos valores de temperatura, inclinacao e bateria.
-3. Confira IP externo, `MQTT conectado` e os pontos no dashboard.
-4. Desligue o roteador: o iSpindel deve continuar enviando ao AP local.
-5. Religue o roteador em outro canal (por exemplo 1 -> 11). Aguarde a
-   reconexao do ESP32 e o proximo ciclo do iSpindel, que deve reencontrar
-   o SSID sem alterar configuracoes de canal.
-6. Desligue o ESP32 durante um ciclo: o iSpindel deve encerrar as tentativas
-   e dormir; religue e confira o retorno no proximo ciclo.
-7. Verifique que a tela e o painel respeitam o prazo de validade configurado.
-
-Os dois firmwares foram compilados no ambiente local (ESP-IDF 6.0 e
-Arduino ESP8266 3.1.2). Os testes executam o codigo real do transmissor
-com Wi-Fi/HTTP simulados e o decodificador real do receptor com cJSON.
-Passaram 38 cenarios do transmissor, 59 do decodificador JSON e 19 do
-handler HTTP. Cobrem confirmacoes corretas/incorretas, status HTTP, limites de tentativas,
-reconexao, tipos/limites dos campos, corpo TCP fragmentado, resposta perdida,
-retransmissao sem duplicar/renovar leituras e compatibilidade entre o JSON
-produzido pelo iSpindel e o decodificador do ESP32.
-Para repetir, na pasta `beer_monitor`, com compiladores C/C++ locais:
-
-```powershell
-python tests/test_hybrid_sender.py C:/MinGW/bin/g++.exe
-python tests/test_http_json.py C:/MinGW/bin/gcc.exe
-python tests/test_http_receiver.py C:/MinGW/bin/gcc.exe
-```
-
-Os arquivos gerados pelo teste ficam em `build/hybrid-tests`.
-
-Compilacao e testes no computador nao comprovam alcance, consumo de
-bateria ou convivencia do radio. Esses pontos exigem os testes acima.
-
+No monitor serial, confira a associação Wi-Fi e a mensagem
+`MQTT conectado`. No painel, selecione o fermentador e confira o horário
+da última leitura. Para verificar os comandos em bancada, inicie uma
+receita pelo painel, confirme a primeira etapa no ESP32 e cancele pelo
+painel para conferir o desligamento dos relés.

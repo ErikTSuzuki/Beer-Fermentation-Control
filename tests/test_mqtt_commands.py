@@ -4,12 +4,81 @@ import shutil
 import subprocess
 import sys
 
-from test_control_telemetry import MOCK, SDK_STUBS
-from test_temperature_control import MOCK as CONTROL_MOCK
-
 PROJECT = Path(__file__).resolve().parents[1]
 BUILD = PROJECT / "build/mqtt-command-tests"
 CJSON = PROJECT / "managed_components/espressif__cjson/cJSON"
+
+SDK_HEADER = r'''
+#ifndef MQTT_TEST_SDK_H
+#define MQTT_TEST_SDK_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+typedef int esp_err_t;
+typedef uint32_t TickType_t;
+typedef struct MockQueue *QueueHandle_t;
+typedef void *esp_mqtt_client_handle_t;
+typedef const char *esp_event_base_t;
+
+typedef struct {
+    struct { struct { const char *uri; } address; } broker;
+    struct { const char *client_id, *username; struct { const char *password; } authentication; } credentials;
+    struct { int protocol_ver, keepalive; } session;
+    struct { int reconnect_timeout_ms, timeout_ms; } network;
+    struct { int size; } buffer;
+    struct { int priority, stack_size; } task;
+    struct { int limit; } outbox;
+} esp_mqtt_client_config_t;
+
+typedef struct {
+    esp_mqtt_client_handle_t client;
+    char *data, *topic;
+    int data_len, total_data_len, current_data_offset, topic_len, msg_id;
+    bool retain;
+} *esp_mqtt_event_handle_t;
+
+enum { ESP_OK, ESP_ERR_INVALID_ARG, ESP_ERR_INVALID_STATE, ESP_ERR_TIMEOUT, ESP_ERR_NO_MEM };
+enum { MQTT_EVENT_CONNECTED, MQTT_EVENT_DISCONNECTED, MQTT_EVENT_ERROR, MQTT_EVENT_SUBSCRIBED, MQTT_EVENT_DATA };
+#define WIFI_IF_STA 0
+#define pdTRUE 1
+#define pdPASS 1
+#define pdMS_TO_TICKS(ms) ((TickType_t)(ms))
+#define MQTT_PROTOCOL_V_3_1_1 4
+#define ESP_EVENT_ANY_ID -1
+#define CONFIG_BEER_LOCAL_MQTT 1
+#define CONFIG_BEER_ISPINDEL_STALE_SECONDS 1800
+#define CONFIG_BEER_MQTT_DEVICE "test"
+#define CONFIG_BEER_MQTT_PASSWORD "test"
+#define CONFIG_BEER_MQTT_URI "mqtt://localhost:18883"
+#define CONFIG_BEER_WIFI_SSID "test"
+#define CONFIG_BEER_MQTT_INTERVAL_SECONDS 15
+#define ESP_LOGI(tag, ...) mock_log(tag, __VA_ARGS__)
+#define ESP_LOGW(tag, ...) mock_log(tag, __VA_ARGS__)
+#define ESP_LOGE(tag, ...) mock_log(tag, __VA_ARGS__)
+
+void mock_log(const char *, const char *, ...);
+int64_t esp_timer_get_time(void);
+void esp_fill_random(void *, size_t);
+esp_err_t esp_wifi_get_mac(int, uint8_t *);
+QueueHandle_t xQueueCreate(unsigned, unsigned);
+int xQueueSend(QueueHandle_t, const void *, unsigned);
+int xQueueReceive(QueueHandle_t, void *, unsigned);
+void vQueueDelete(QueueHandle_t);
+int xTaskCreate(void (*)(void *), const char *, unsigned, void *, unsigned, void *);
+TickType_t xTaskGetTickCount(void);
+void vTaskDelete(void *);
+void vTaskDelay(TickType_t);
+esp_mqtt_client_handle_t esp_mqtt_client_init(const esp_mqtt_client_config_t *);
+esp_err_t esp_mqtt_client_register_event(esp_mqtt_client_handle_t, int,
+    void (*)(void *, esp_event_base_t, int32_t, void *), void *);
+esp_err_t esp_mqtt_client_start(esp_mqtt_client_handle_t);
+esp_err_t esp_mqtt_client_destroy(esp_mqtt_client_handle_t);
+int esp_mqtt_client_publish(esp_mqtt_client_handle_t, const char *, const char *, int, int, int);
+int esp_mqtt_client_enqueue(esp_mqtt_client_handle_t, const char *, const char *, int, int, int, bool);
+int esp_mqtt_client_subscribe(esp_mqtt_client_handle_t, const char *, int);
+#endif
+'''
 
 HARNESS = r'''
 #include "BrokerMqtt.c"
@@ -157,17 +226,17 @@ def main():
     compiler = sys.argv[1] if len(sys.argv) > 1 else shutil.which("gcc")
     if not compiler:
         raise SystemExit("Host gcc required.")
+    if not (CJSON / "cJSON.c").is_file():
+        raise SystemExit("Build the ESP32 project first to install the managed cJSON component.")
     BUILD.mkdir(parents=True, exist_ok=True)
-    (BUILD / "control_mock.h").write_text(CONTROL_MOCK, encoding="utf-8")
-    (BUILD / "telemetry_mock.h").write_text(
-        "#ifndef TELEMETRY_MOCK_H\n#define TELEMETRY_MOCK_H\n" + MOCK + "\n#endif\n", encoding="utf-8")
+    (BUILD / "mqtt_test_sdk.h").write_text(SDK_HEADER, encoding="utf-8")
     for name in ("sdkconfig.h", "esp_wifi.h", "mqtt_client.h", "esp_err.h", "esp_log.h",
                  "esp_timer.h", "esp_random.h", "freertos/queue.h", "freertos/FreeRTOS.h", "freertos/task.h"):
         path = BUILD / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('#include "telemetry_mock.h"\n', encoding="utf-8")
+        path.write_text('#include "mqtt_test_sdk.h"\n', encoding="utf-8")
     source = BUILD / "commands_test.c"
-    source.write_text(HARNESS + SDK_STUBS, encoding="utf-8")
+    source.write_text(HARNESS, encoding="utf-8")
     executable = BUILD / "commands_test"
     subprocess.run([
         compiler, "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror",
