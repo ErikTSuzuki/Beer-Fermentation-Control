@@ -7,6 +7,7 @@
 #include "TemperatureControl.h"
 #include "FermentationRecipe.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
@@ -40,6 +41,19 @@ static const char *gravityUnit(uint8_t unit) {
     if (unit == BREW_UNIT_SG) return "SG";
     if (unit == BREW_UNIT_PLATO) return "PLATO";
     return "SEM UNID";
+}
+
+static void formatDuration(char *buffer, size_t size, double days) {
+    const unsigned long seconds = (unsigned long)(llround(days * RECIPE_DAY_US) / 1000000);
+    if (seconds >= 86400) {
+        snprintf(buffer, size, "%lud%02luh", seconds / 86400, seconds / 3600 % 24);
+    } else if (seconds >= 3600) {
+        snprintf(buffer, size, "%luh%02lum", seconds / 3600, seconds / 60 % 60);
+    } else if (seconds >= 60) {
+        snprintf(buffer, size, "%lum%02lus", seconds / 60, seconds % 60);
+    } else {
+        snprintf(buffer, size, "%lus", seconds);
+    }
 }
 
 static void displayTask(void *context) {
@@ -76,8 +90,11 @@ static void displayTask(void *context) {
             } else if (!recipeStatus.storageOk) {
                 showLine(&recipeLine, "ERRO SALVAR RECEITA", RED);
             } else if (recipeStatus.state == RECIPE_RUNNING) {
-                snprintf(line, sizeof(line), "E%u/%u %.1f/%.1f DIAS", recipeStatus.stepIndex + 1,
-                         recipeStatus.stepCount, recipeStatus.elapsedDays, recipeStatus.maximumDays);
+                char elapsed[20], maximum[20];
+                formatDuration(elapsed, sizeof(elapsed), recipeStatus.elapsedDays);
+                formatDuration(maximum, sizeof(maximum), recipeStatus.maximumDays);
+                snprintf(line, sizeof(line), "E%u/%u %s/%s", recipeStatus.stepIndex + 1,
+                         recipeStatus.stepCount, elapsed, maximum);
                 showLine(&recipeLine, line, 0x07FF);
             } else {
                 showLine(&recipeLine, recipeStatus.state == RECIPE_COMPLETED

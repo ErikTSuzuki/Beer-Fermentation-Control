@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "Teste de 8 minutos",
+  "gravity_unit": "sg",
+  "on_complete": "hold",
+  "steps": [
+    {
+      "name": "Prazo de 2 minutos",
+      "target_c": 20,
+      "max_days": 0.001388888888888889,
+      "gravity_limit": null
+    },
+    {
+      "name": "Prazo de 0,1 hora",
+      "target_c": 21,
+      "max_days": 0.004166666666666667,
+      "gravity_limit": null
+    }
+  ]
+}

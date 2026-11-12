@@ -1,4 +1,4 @@
-# Receitas de fermentacao: dias e densidade
+# Receitas de fermentação por tempo e densidade
 
 A tarefa `fermentation_recipe` escolhe a temperatura alvo de cada etapa e a
 envia ao controlador termico existente. A regra de saida de cada etapa e:
@@ -93,6 +93,25 @@ O JSON Schema valida a estrutura e as faixas gerais. O editor tambem deve
 verificar o tamanho dos nomes em bytes UTF-8, o tamanho total do JSON e as
 capacidades termicas configuradas no ESP32. A validacao final permanece no
 firmware. O parser nao aceita caracteres NUL mesmo quando escapados.
+
+## Teste com horas e minutos
+
+No painel local do ESP32 e no dashboard remoto, preencha **Duração máxima**
+e escolha **Dias**, **Horas** ou **Minutos** em cada etapa. É possível
+misturar unidades na mesma receita e usar valores decimais. Por exemplo,
+`1,5` hora equivale a 1 hora e 30 minutos.
+
+Para testar uma transição curta, importe a
+[receita de teste de 8 minutos](recipes/teste-duracao-curta.json). A primeira
+etapa mantém o alvo de 20 °C por 2 minutos e a segunda usa 21 °C por
+6 minutos (0,1 hora). Com o limite de densidade vazio, a mudança de etapa
+ocorre pelo tempo. Ao concluir, o ESP32 continua mantendo 21 °C. Para
+encerrar o controle e desligar os relés, use **Cancelar receita e desligar**.
+
+Os editores enviam a duração em `max_days` para a API local e para o comando
+remoto. No JSON, divida as horas por 24 ou os minutos por 1440. Ao importar
+ou carregar uma receita do ESP32, o editor escolhe uma unidade adequada para
+cada prazo salvo.
 
 ## Confirmacao por densidade
 

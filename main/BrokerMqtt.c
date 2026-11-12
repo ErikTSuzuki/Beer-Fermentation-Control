@@ -174,7 +174,7 @@ static int buildPayload(char *payload, size_t capacity) {
             !cJSON_AddBoolToObject(context, "densidade_disponivel", recipe.gravityAvailable) ||
             !cJSON_AddBoolToObject(context, "armazenamento_ok", recipe.storageOk) ||
             !cJSON_AddNumberToObject(context, "erro", recipe.lastError) ||
-            !cJSON_AddNumberToObject(root, "dias-etapa", round(recipe.elapsedDays * 100000.0) / 100000.0) ||
+            !cJSON_AddNumberToObject(root, "dias-etapa", recipe.elapsedDays) ||
             !cJSON_AddNumberToObject(root, "dias-max-etapa", recipe.maximumDays)) goto failure;
         if (recipe.hasGravityLimit && !cJSON_AddNumberToObject(context, "densidade_limite", recipe.gravityLimit)) goto failure;
         fields += 3;
