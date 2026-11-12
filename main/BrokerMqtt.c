@@ -403,7 +403,8 @@ static void brokerTask(void *context) {
     const esp_mqtt_client_config_t config = {
         .broker.address.uri = CONFIG_BEER_MQTT_URI,
 #if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-        .broker.verification.crt_bundle_attach = !strncmp(CONFIG_BEER_MQTT_URI, "mqtts://", 8)
+        .broker.verification.crt_bundle_attach = (!strncmp(CONFIG_BEER_MQTT_URI, "mqtts://", 8) ||
+            !strncmp(CONFIG_BEER_MQTT_URI, "wss://", 6))
             ? esp_crt_bundle_attach : NULL,
 #endif
         .credentials.client_id = clientId,

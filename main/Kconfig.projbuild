@@ -181,8 +181,9 @@ menu "Beer Monitor - MQTT broker"
         string "Broker URI"
         default ""
         help
-            Use mqtt://PC_LAN_IP:18883 on the local network or mqtts://
-            with a trusted certificate. Keep credentials out of the URI.
+            Use mqtt://PC_LAN_IP:18883 on the local network. For remote brokers,
+            use mqtts:// or wss:// with a trusted certificate. Use the path
+            configured by the reverse proxy for WSS. Keep credentials out of the URI.
 
     config BEER_MQTT_DEVICE
         string "MQTT device identifier and username"

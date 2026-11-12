@@ -17,14 +17,22 @@ e o intervalo de publicação. Na instalação local, use
 `mqtt://IP_DO_PC:18883` e o dispositivo `fermentador01`. O identificador
 também é o usuário MQTT. A senha local fica no campo
 `MQTT_DEVICE_PASSWORD` de `.runtime/credentials.json` na pasta do servidor.
-O intervalo padrão é de 15 segundos. O firmware aceita `mqtts://` com
+O intervalo padrão é de 15 segundos. O firmware aceita `mqtts://` e `wss://` com
 certificados confiáveis pelo bundle do ESP-IDF.
 
 Na instalação do servidor fora deste repositório, inicie o broker pela
 interface de rede local com `python3 -B local.py start --mqtt-lan IP_DO_PC`.
 O painel abre em <http://127.0.0.1:8090> no próprio PC. O servidor também
 tem uma configuração Docker Compose. Consulte o README da instalação do
-servidor para a implantação em contêineres.
+servidor e o [guia da VM](SERVIDOR.md) para a implantação em contêineres.
+
+## MQTT remoto pelo Caddy
+
+Configure a URI do ESP32 como `wss://IP_PUBLICO/mqtt` e use a
+`MQTT_DEVICE_PASSWORD` da VM. O ESP32 usa a porta HTTPS `443` e valida o
+certificado do IP público com o conjunto de autoridades do ESP-IDF.
+Consulte [MQTT pela porta 443](SERVIDOR.md#mqtt-pela-porta-443) para configurar
+o listener WebSocket e o encaminhamento pelo Caddy.
 
 ## Tópicos
 

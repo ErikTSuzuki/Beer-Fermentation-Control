@@ -129,6 +129,7 @@ Consulte [RECEITAS.md](RECEITAS.md).
 | [recipes/](recipes/) | Receita de exemplo e esquema JSON |
 | [RECEITAS.md](RECEITAS.md) | Contrato JSON, execução e persistência das receitas |
 | [MQTT.md](MQTT.md) | Wi-Fi, integração com iSpindel, RTC e broker |
+| [SERVIDOR.md](SERVIDOR.md) | Fluxos do dashboard, implantação na VM, acesso HTTPS e verificação |
 
 Após compilar o firmware, execute `python3 -B tests/test_mqtt_commands.py` com
 GCC no Linux para verificar a validação dos comandos MQTT sem usar uma placa.
