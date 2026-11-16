@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include "driver/gpio.h"
 
-// GPIO21/22 ja pertencem a TFT. GPIO32/33 ficam livres para futuros reles.
 // GPIO5/15 sao strapping: SDA e SCL precisam de pull-ups para 3V3.
 #define RTC_SDA GPIO_NUM_5
 #define RTC_SCL GPIO_NUM_15

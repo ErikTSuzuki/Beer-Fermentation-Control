@@ -12,8 +12,8 @@
 #include "onewire_bus.h"
 #include "ds18b20.h"
 
-// DS18B20 alimentado por 3,3 V: DQ no GPIO4 e pull-up externo de 4,7 kohm.
-static const int DS18B20_GPIO = 4;
+// DS18B20 alimentado por 3,3 V: DQ no GPIO13 e pull-up externo de 4,7 kohm.
+static const int DS18B20_GPIO = 13;
 static const uint32_t LOCAL_SAMPLE_PERIOD_MS = 2000;
 static const char *LOCAL_TAG = "DS18B20_LOCAL";
 
