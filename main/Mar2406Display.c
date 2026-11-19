@@ -88,8 +88,7 @@ esp_err_t mar2406_display_initialize(void) {
         MAR2406_DATA[4], MAR2406_DATA[5], MAR2406_DATA[6], MAR2406_DATA[7], MAR2406_WR, MAR2406_RS, MAR2406_CS, MAR2406_RST};
     for (size_t i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i) {
         const gpio_num_t pin = pins[i];
-        if (!GPIO_IS_VALID_OUTPUT_GPIO(pin) || pin == GPIO_NUM_4 ||
-            (mask & (1ULL << pin))) {
+        if (!GPIO_IS_VALID_OUTPUT_GPIO(pin) || (mask & (1ULL << pin))) {
             return ESP_ERR_INVALID_ARG;
         }
         mask |= 1ULL << pin;
