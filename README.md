@@ -30,72 +30,56 @@ iSpindel ── Wi-Fi/HTTP ──> ESP32 + receitas      interface / potência e
 - **Monitoramento:** TFT MAR2406/ILI9341, RTC e telemetria MQTT opcional.
   O enlace atual com o iSpindel usa HTTP/JSON por Wi-Fi.
 
-## Hardware e pinagem atual
+## Hardware e pinagem do firmware
 
-Base: ESP32 clássico, DS18B20 alimentado em 3,3 V, display paralelo de 8 bits
-configurado como MAR2406/ILI9341 e interface para dois comandos de relé.
-As fotos do protótipo mostram um **ESP32 DEVKIT V1 com 30 pinos** e um
-**RTC HW-084 com CI marcado DS3231M e EEPROM 24C32N**. A documentação anterior
-e as mensagens do firmware citam DS3232M; não confunda esse nome com a marcação
-da peça fotografada. Confira a revisão e a pinagem dos módulos antes de montar.
+O protótipo usa um **ESP32 DEVKIT V1 de 30 pinos**, um DS18B20 e um display TFT
+MAR2406/ILI9341 com barramento paralelo de 8 bits. O módulo RTC HW-084 do
+protótipo tem um CI marcado DS3231M e uma EEPROM 24C32N. O firmware identifica
+a tarefa de leitura do RTC como `rtc_ds3232m`. Use os números dos GPIOs indicados
+na tabela para identificar os pinos da placa.
 
-### Pinos utilizados no projeto
+| Periférico | Sinal | Pino do ESP32 | Ligação ou função |
+|---|---|---|---|
+| DS18B20 | `DQ` | **GPIO13** | Dados 1-Wire, com resistor de 4,7 kΩ entre `DQ` e `3V3` |
+| RTC | `SDA` | GPIO5 | Dados I²C, com pull-up para `3V3` |
+| RTC | `SCL` | GPIO15 | Clock I²C, com pull-up para `3V3` |
+| Relé de aquecimento (J4) | `IN` | **GPIO26** | Aciona em `HIGH` |
+| Relé de resfriamento (J5) | `IN` | **GPIO25** | Aciona em `HIGH` |
+| TFT | `LCD_D0` | GPIO22 | Bit 0 do barramento paralelo |
+| TFT | `LCD_D1` | GPIO23 | Bit 1 do barramento paralelo |
+| TFT | `LCD_D2` | GPIO4 | Bit 2 do barramento paralelo |
+| TFT | `LCD_D3` | GPIO16 | Bit 3 do barramento paralelo |
+| TFT | `LCD_D4` | GPIO17 | Bit 4 do barramento paralelo |
+| TFT | `LCD_D5` | GPIO18 | Bit 5 do barramento paralelo |
+| TFT | `LCD_D6` | GPIO19 | Bit 6 do barramento paralelo |
+| TFT | `LCD_D7` | GPIO21 | Bit 7 do barramento paralelo |
+| TFT | `LCD_WR` | GPIO14 | Pulso de escrita |
+| TFT | `LCD_RS` | GPIO32 | Seleção entre comando e dados |
+| TFT | `LCD_CS` | GPIO33 | Seleção da tela |
+| TFT | `LCD_RST` | GPIO27 | Reset da tela |
+| TFT | `LCD_RD` | `3V3` | Mantido em nível alto para operação somente de escrita |
 
-![ESP32 DEVKIT V1 de 30 pinos: somente as conexões utilizadas pelo Cerveja Monitor](hardware/pinagem_esp32.png)
-
-[Abrir a figura com etiquetas editáveis em SVG](hardware/pinagem_esp32.svg).
-
-A figura adapta a referência de pinagem fornecida para as funções do firmware.
-Os pinos sem conexão aos periféricos do projeto ficam sem tags externas.
-Vista pela frente, com a antena acima e a porta USB abaixo; os números de
-posição das fileiras não são os números dos GPIOs.
-
-| Pino do ESP32 | Conexão no projeto |
-|---|---|
-| GPIO4 | DS18B20 — DQ; pull-up externo de 4,7 kΩ para 3V3 |
-| GPIO5 | RTC — SDA; pull-up para 3V3 |
-| GPIO15 | RTC — SCL; pull-up para 3V3 |
-| GPIO32 | Comando do aquecimento — ativo em LOW |
-| GPIO33 | Comando da refrigeração — ativo em LOW |
-| GPIO13 | TFT — LCD_D0 |
-| GPIO14 | TFT — LCD_D1 |
-| GPIO16 | TFT — LCD_D2 |
-| GPIO17 | TFT — LCD_D3 |
-| GPIO18 | TFT — LCD_D4 |
-| GPIO19 | TFT — LCD_D5 |
-| GPIO21 | TFT — LCD_D6 |
-| GPIO22 | TFT — LCD_D7 |
-| GPIO23 | TFT — LCD_WR |
-| GPIO25 | TFT — LCD_RS |
-| GPIO26 | TFT — LCD_CS |
-| GPIO27 | TFT — LCD_RST |
-| 3V3 | Alimentação do DS18B20 e do RTC, pull-ups e TFT LCD_RD mantido alto |
-| VIN / 5 V | Alimentação de 5 V da TFT, conforme a revisão do shield e o caminho de alimentação do DevKit |
-| GND | Referência comum dos circuitos de baixa tensão |
-
-A pinagem foi conferida em [Mar2406Config.h](main/Mar2406Config.h),
+As definições estão em [LocalTemperature.c](main/LocalTemperature.c),
 [RtcConfig.h](main/RtcConfig.h), [RelayConfig.h](main/RelayConfig.h) e
-[LocalTemperature.c](main/LocalTemperature.c). Neste firmware, o I²C do RTC
-usa **GPIO5/15**; GPIO21/22 pertencem à TFT. As funções alternativas genéricas
-ADC, DAC, Touch, SPI e UART da referência foram retiradas das tags.
-O USB continua usando o circuito serial da placa para gravação e monitoramento.
+[Mar2406Config.h](main/Mar2406Config.h).
 
-A alimentação da tela deve seguir a revisão real do módulo e o guia
-[TESTE_MAR2406.md](TESTE_MAR2406.md). GPIOs não recebem 5 V. Os GPIO5 e GPIO15
-também são pinos de configuração de partida: valide o boot com o RTC conectado.
+- **DS18B20 e RTC.** Ligue `VDD` do sensor e `VCC` do RTC a `3V3` e conecte
+  os respectivos `GND` ao terra comum. O RTC usa o endereço I²C `0x68`.
+  GPIO5 e GPIO15 também participam da configuração de partida do ESP32.
+- **Relés.** `RELAY_ACTIVE_LOW` está definido como `false`. O firmware usa
+  `HIGH` para acionar e `LOW` para desligar as duas saídas. A alimentação do
+  módulo depende do modelo. As entradas `IN` precisam aceitar o comando de 3,3 V.
+- **TFT.** Use GND comum e siga a alimentação indicada para a revisão do shield.
+  Se o módulo usar 5 V na alimentação, mantenha os sinais ligados ao ESP32 em 3,3 V.
 
-**Os GPIOs são comandos, não saídas de potência.** A corrente nominal resistiva
-impressa em um módulo de relés não basta para selecionar o acionamento de um
-compressor. A etapa de potência deve ser dimensionada para o motor e montada
-com proteção, isolamento e aterramento adequados. O desenho abaixo propõe uma
-placa de controle de baixa tensão alimentada por fonte USB externa, com a
-potência separada.
+A etapa de potência deve ser dimensionada para o compressor e montada com
+proteção, isolamento e aterramento adequados.
 
 ## Preparar, compilar e gravar
 
 Use um ambiente ESP-IDF configurado para o ESP32 clássico. O manifesto declara
 ESP-IDF `>=5.0.0`, e o arquivo `dependencies.lock` registra uma resolução com
-`6.1.0`; isso não comprova compatibilidade com todas as versões intermediárias.
+`6.0.0`.
 As dependências incluem OneWire, DS18B20, cJSON e MQTT, conforme
 [main/idf_component.yml](main/idf_component.yml).
 
@@ -125,7 +109,7 @@ Configure em `menuconfig`:
 
 Troque a senha de exemplo do AP. Não publique senhas, tokens ou um `sdkconfig`
 com credenciais. A publicação atual usa MQTT/TCP sem TLS, conforme
-[UBIDOTS.md](UBIDOTS.md); considere essa limitação ao escolher a rede.
+[UbidotsTelemetry.c](main/UbidotsTelemetry.c).
 
 ## Usar a interface local
 
@@ -137,21 +121,13 @@ com credenciais. A publicação atual usa MQTT/TCP sem TLS, conforme
 
 O endereço pode mudar conforme a configuração do AP. Para substituir uma
 receita em execução, cancele-a pela interface primeiro. Ao terminar a última
-etapa, o firmware mantém sua temperatura alvo. Consulte
-[INTERFACE_LOCAL.md](INTERFACE_LOCAL.md) e [RECEITAS.md](RECEITAS.md).
+etapa, o firmware mantém sua temperatura alvo. Consulte [RECEITAS.md](RECEITAS.md).
 
 ## Proposta de PCB
 
-![Disposição conceitual da PCB: frente, verso e perfil](hardware/pcb/disposicao_pcb.png)
-
-Tela na frente, eletrônica no verso e conectores nas bordas. A antena do ESP32
-fica junto à borda superior, fora da projeção da tela. Dimensões, módulos e
-conectores ainda precisam de conferência mecânica; **a figura não é um layout
-roteado nem um arquivo pronto para fabricação**.
-
-Veja as decisões e pendências em
-[hardware/pcb/DISPOSICAO.md](hardware/pcb/DISPOSICAO.md) e o
-[desenho vetorial](hardware/pcb/disposicao_pcb.svg).
+A proposta posiciona a tela na frente, a eletrônica no verso e os conectores
+nas bordas. A antena do ESP32 fica junto à borda superior, fora da projeção da
+tela. Dimensões, módulos e conectores ainda precisam de conferência mecânica.
 
 ## Organização e documentação
 
@@ -159,28 +135,12 @@ Veja as decisões e pendências em
 |---|---|
 | [main/](main/) | Firmware C, configuração dos GPIOs e página web embarcada |
 | [recipes/](recipes/) | Receita de exemplo e esquema JSON |
-| [tests/](tests/) | Testes no computador e prévia da interface |
-| [CONTROLE.md](CONTROLE.md) | Controle térmico, estados e proteções |
+| [TemperatureControl.c](main/TemperatureControl.c) | Controle térmico e acionamento dos relés |
 | [RECEITAS.md](RECEITAS.md) | Contrato JSON e execução das receitas |
-| [INTERFACE_LOCAL.md](INTERFACE_LOCAL.md) | Configuração pelo navegador e API local |
-| [UBIDOTS.md](UBIDOTS.md) | Wi-Fi, iSpindel, RTC e envio de dados |
-| [TESTE_MAR2406.md](TESTE_MAR2406.md) | Ligação e teste do display |
-| [hardware/pcb/DISPOSICAO.md](hardware/pcb/DISPOSICAO.md) | Proposta mecânica da placa de controle |
+| [LocalWebUi.c](main/LocalWebUi.c) | Interface de receitas e API local |
+| [Kconfig.projbuild](main/Kconfig.projbuild) | Opções do projeto no `menuconfig` |
 
-## Validação
+## Validação em bancada
 
-Os testes existentes exigem Python 3; os que compilam código C também precisam
-de GCC disponível. Exemplos, na raiz do projeto:
-
-```powershell
-python tests/test_temperature_control.py
-python tests/test_fermentation_recipe.py
-python tests/test_rtc_clock.py
-python tests/test_local_web_ui.py
-python tests/test_control_telemetry.py
-```
-
-Esses testes verificam comportamentos com simulações no computador. Não
-substituem compilação para o ESP32, ensaios elétricos, verificação do rádio ou
-validação térmica. Antes de conectar cargas, confira a polaridade real dos
-comandos, falha do sensor, partida, reset e bloqueio do compressor em bancada.
+Antes de conectar cargas, confira a polaridade real dos comandos, falha do
+sensor, partida, reset e bloqueio do compressor em bancada.
