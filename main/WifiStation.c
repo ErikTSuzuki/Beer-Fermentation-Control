@@ -8,12 +8,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "nvs.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
-#if CONFIG_BEER_WIFI_ENTERPRISE
+#if CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
 #include "esp_eap_client.h"
 #endif
 
@@ -23,6 +26,7 @@ static EventGroupHandle_t wifiEvents;
 #define WIFI_ASSOCIATED_BIT BIT1
 #define WIFI_CONNECTING_BIT BIT2
 #define WIFI_DISCONNECTED_BIT BIT3
+#define WIFI_RECONFIGURE_BIT BIT4
 
 bool wifi_station_is_connected(void) {
     return wifiEvents &&
@@ -30,35 +34,118 @@ bool wifi_station_is_connected(void) {
 }
 
 #if CONFIG_BEER_WIFI_UPLINK_ENABLED
-#if CONFIG_BEER_WIFI_ENTERPRISE
-static esp_err_t configureEnterprise(void) {
-    static bool configured = false;
-    if (configured) return ESP_OK;
+typedef struct {
+    char ssid[33], password[128], username[128], identity[128];
+} UplinkCredentials;
 
-    const char *username = CONFIG_BEER_WIFI_USERNAME;
-    const char *identity = strlen(CONFIG_BEER_WIFI_IDENTITY) ?
-        CONFIG_BEER_WIFI_IDENTITY : username;
-    const char *password = CONFIG_BEER_WIFI_PASSWORD;
+typedef struct {
+    UplinkCredentials credentials;
+    TickType_t queuedAt;
+    TickType_t delay;
+} UplinkChange;
+
+static QueueHandle_t uplinkChanges;
+static SemaphoreHandle_t uplinkLock;
+static const char *const UPLINK_NAMESPACE = "wifi_uplink";
+
+static bool credentialsValid(const char *ssid, const char *password,
+                             const char *username, const char *identity) {
+    const size_t ssidLength = strlen(ssid), passwordLength = strlen(password);
+    if (!ssidLength || ssidLength > 32 || !strcmp(ssid, CONFIG_BEER_AP_SSID)) return false;
+    if (username[0])
+        return wifi_station_supports_enterprise() && strlen(username) <= 127 &&
+            strlen(identity) <= 127 && passwordLength >= 1 && passwordLength <= 127;
+    if (identity[0]) return false;
+    return !passwordLength || (passwordLength >= 8 && passwordLength <= 63) ||
+        (passwordLength == 64 && strspn(password, "0123456789abcdefABCDEF") == 64);
+}
+
+static void copyCredentials(UplinkCredentials *credentials, const char *ssid,
+                            const char *password, const char *username, const char *identity) {
+    *credentials = (UplinkCredentials){0};
+    strcpy(credentials->ssid, ssid);
+    strcpy(credentials->password, password);
+    strcpy(credentials->username, username);
+    strcpy(credentials->identity, identity);
+}
+
+static bool loadBootCredentials(UplinkCredentials *credentials) {
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open(UPLINK_NAMESPACE, NVS_READONLY, &handle);
+    if (result == ESP_OK) {
+        size_t size = sizeof(*credentials);
+        result = nvs_get_blob(handle, "credentials", credentials, &size);
+        nvs_close(handle);
+        if (result == ESP_OK)
+            return size == sizeof(*credentials) &&
+                memchr(credentials->ssid, 0, sizeof(credentials->ssid)) &&
+                memchr(credentials->password, 0, sizeof(credentials->password)) &&
+                memchr(credentials->username, 0, sizeof(credentials->username)) &&
+                memchr(credentials->identity, 0, sizeof(credentials->identity)) &&
+                credentialsValid(credentials->ssid, credentials->password,
+                                 credentials->username, credentials->identity);
+    }
+    if (result != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Falha ao ler rede externa salva: %s", esp_err_to_name(result));
+        return false;
+    }
+    const char *ssid = CONFIG_BEER_WIFI_SSID, *password = CONFIG_BEER_WIFI_PASSWORD;
+#if CONFIG_BEER_WIFI_ENTERPRISE
+    const char *username = CONFIG_BEER_WIFI_USERNAME, *identity = CONFIG_BEER_WIFI_IDENTITY;
+    if (!username[0]) return false;
+#else
+    const char *username = "", *identity = "";
+#endif
+    if (!credentialsValid(ssid, password, username, identity)) return false;
+    copyCredentials(credentials, ssid, password, username, identity);
+    return true;
+}
+
+#if CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
+static esp_err_t configureEnterprise(const UplinkCredentials *credentials) {
+    const char *username = credentials->username;
+    const char *identity = credentials->identity[0] ? credentials->identity : username;
+    const char *password = credentials->password;
     esp_err_t result = esp_eap_client_set_identity(
         (const unsigned char *)identity, (int)strlen(identity));
-    if (result == ESP_OK) {
-        result = esp_eap_client_set_username(
-            (const unsigned char *)username, (int)strlen(username));
-    }
-    if (result == ESP_OK) {
-        result = esp_eap_client_set_password(
-            (const unsigned char *)password, (int)strlen(password));
-    }
+    if (result == ESP_OK)
+        result = esp_eap_client_set_username((const unsigned char *)username, (int)strlen(username));
+    if (result == ESP_OK)
+        result = esp_eap_client_set_password((const unsigned char *)password, (int)strlen(password));
     if (result == ESP_OK) result = esp_wifi_sta_enterprise_enable();
-    if (result == ESP_OK) {
-        configured = true;
-    } else {
-        // Libera configuracao parcial para permitir nova tentativa limpa.
-        esp_wifi_sta_enterprise_disable();
-    }
+    if (result != ESP_OK) (void)esp_wifi_sta_enterprise_disable();
     return result;
 }
 #endif
+
+static esp_err_t applyCredentials(const UplinkCredentials *credentials) {
+    wifi_config_t config = {0};
+    memcpy(config.sta.ssid, credentials->ssid, strlen(credentials->ssid));
+    if (credentials->username[0]) {
+        config.sta.threshold.authmode = WIFI_AUTH_WPA2_ENTERPRISE;
+    } else {
+        memcpy(config.sta.password, credentials->password, strlen(credentials->password));
+        if (credentials->password[0]) config.sta.threshold.authmode = WIFI_AUTH_WPA_PSK;
+    }
+    // AP e STA compartilham o radio e acompanham o canal da rede externa.
+    config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+#if CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
+    static bool enterpriseEnabled;
+    if (enterpriseEnabled) {
+        const esp_err_t result = esp_wifi_sta_enterprise_disable();
+        if (result != ESP_OK) return result;
+        enterpriseEnabled = false;
+    }
+#endif
+    esp_err_t result = esp_wifi_set_config(WIFI_IF_STA, &config);
+#if CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
+    if (result == ESP_OK && credentials->username[0]) {
+        result = configureEnterprise(credentials);
+        enterpriseEnabled = result == ESP_OK;
+    }
+#endif
+    return result;
+}
 
 static void onWifiEvent(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg;
@@ -81,55 +168,124 @@ static void onWifiEvent(void *arg, esp_event_base_t base, int32_t id, void *data
         if (base == WIFI_EVENT) {
             const wifi_event_sta_disconnected_t *event = data;
             // Mantem o SoftAP ativo no canal atual ate a proxima associacao.
-            xEventGroupSetBits(wifiEvents, WIFI_DISCONNECTED_BIT);
             xEventGroupClearBits(wifiEvents, WIFI_ASSOCIATED_BIT | WIFI_CONNECTING_BIT);
+            xEventGroupSetBits(wifiEvents, WIFI_DISCONNECTED_BIT);
             ESP_LOGW(TAG, "Wi-Fi desconectado (motivo %u); nova tentativa em 30 s",
                      event->reason);
         }
     }
 }
 
+static void disconnectUplink(void) {
+    const EventBits_t active = WIFI_ASSOCIATED_BIT | WIFI_CONNECTING_BIT;
+    xEventGroupClearBits(wifiEvents, WIFI_DISCONNECTED_BIT);
+    if ((xEventGroupGetBits(wifiEvents) & active) && esp_wifi_disconnect() == ESP_OK)
+        (void)xEventGroupWaitBits(wifiEvents, WIFI_DISCONNECTED_BIT, pdTRUE, pdFALSE,
+                                 pdMS_TO_TICKS(2000));
+    xEventGroupClearBits(wifiEvents, active | WIFI_CONNECTED_BIT);
+}
+
 static void wifiConnectTask(void *context) {
     (void)context;
-    wifi_config_t config = {0};
-    memcpy(config.sta.ssid, CONFIG_BEER_WIFI_SSID, strlen(CONFIG_BEER_WIFI_SSID));
-#if CONFIG_BEER_WIFI_ENTERPRISE
-    config.sta.threshold.authmode = WIFI_AUTH_WPA2_ENTERPRISE;
-#else
-    memcpy(config.sta.password, CONFIG_BEER_WIFI_PASSWORD,
-           strlen(CONFIG_BEER_WIFI_PASSWORD));
-#endif
-    // O driver descobre o canal. Nunca forcar canal enquanto houver clientes
-    // no SoftAP: AP e STA compartilham o radio e seguem a associacao externa.
-    config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
-#if CONFIG_BEER_WIFI_ENTERPRISE
-    if (configureEnterprise() != ESP_OK) {
-        vTaskDelete(NULL);
-        return;
-    }
-#endif
+    UplinkCredentials credentials;
+    bool apply = loadBootCredentials(&credentials);
+    bool configured = false;
     for (;;) {
-        if (!(xEventGroupGetBits(wifiEvents) &
-              (WIFI_ASSOCIATED_BIT | WIFI_CONNECTING_BIT))) {
+        if (apply) {
+            const esp_err_t result = applyCredentials(&credentials);
+            configured = result == ESP_OK;
+            if (!configured)
+                ESP_LOGW(TAG, "Falha ao configurar rede externa: %s", esp_err_to_name(result));
+            apply = false;
+        }
+        if (configured && !(xEventGroupGetBits(wifiEvents) &
+                           (WIFI_ASSOCIATED_BIT | WIFI_CONNECTING_BIT))) {
             xEventGroupClearBits(wifiEvents, WIFI_DISCONNECTED_BIT);
             xEventGroupSetBits(wifiEvents, WIFI_CONNECTING_BIT);
             const esp_err_t result = esp_wifi_connect();
             if (result != ESP_OK) {
                 xEventGroupClearBits(wifiEvents, WIFI_CONNECTING_BIT);
-                ESP_LOGW(TAG, "Falha ao conectar rede externa: %s",
-                         esp_err_to_name(result));
+                ESP_LOGW(TAG, "Falha ao conectar rede externa: %s", esp_err_to_name(result));
             }
         }
-        const EventBits_t events = xEventGroupWaitBits(
-            wifiEvents, WIFI_DISCONNECTED_BIT, pdTRUE, pdFALSE,
-            pdMS_TO_TICKS(30000));
-        if (events & WIFI_DISCONNECTED_BIT) {
-            vTaskDelay(pdMS_TO_TICKS(30000));
+        EventBits_t events = xEventGroupWaitBits(
+            wifiEvents, WIFI_DISCONNECTED_BIT | WIFI_RECONFIGURE_BIT, pdTRUE, pdFALSE,
+            configured ? pdMS_TO_TICKS(30000) : portMAX_DELAY);
+        if ((events & WIFI_DISCONNECTED_BIT) && !(events & WIFI_RECONFIGURE_BIT))
+            events = xEventGroupWaitBits(wifiEvents, WIFI_RECONFIGURE_BIT, pdTRUE, pdFALSE,
+                                        pdMS_TO_TICKS(30000));
+        if (events & WIFI_RECONFIGURE_BIT) {
+            UplinkChange change;
+            if (xQueueReceive(uplinkChanges, &change, 0) == pdTRUE) {
+                // Respeita o prazo da ultima configuracao, mesmo com pedidos simultaneos.
+                for (;;) {
+                    const TickType_t elapsed = xTaskGetTickCount() - change.queuedAt;
+                    if (elapsed >= change.delay ||
+                        xQueueReceive(uplinkChanges, &change, change.delay - elapsed) != pdTRUE) break;
+                }
+                credentials = change.credentials;
+                disconnectUplink();
+                apply = true;
+            }
         }
     }
 }
 #endif
+
+bool wifi_station_can_configure(void) {
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED
+    return uplinkChanges != NULL;
+#else
+    return false;
+#endif
+}
+
+bool wifi_station_supports_enterprise(void) {
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED && CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
+    return true;
+#else
+    return false;
+#endif
+}
+
+static esp_err_t setUplink(const char *ssid, const char *password,
+                          const char *username, const char *identity, unsigned delayMs) {
+#if CONFIG_BEER_WIFI_UPLINK_ENABLED
+    if (!uplinkChanges) return ESP_ERR_INVALID_STATE;
+    if (!credentialsValid(ssid, password, username, identity)) return ESP_ERR_INVALID_ARG;
+
+    UplinkChange change = {.delay = pdMS_TO_TICKS(delayMs)};
+    copyCredentials(&change.credentials, ssid, password, username, identity);
+    nvs_handle_t handle;
+    xSemaphoreTake(uplinkLock, portMAX_DELAY);
+    esp_err_t result = nvs_open(UPLINK_NAMESPACE, NVS_READWRITE, &handle);
+    if (result == ESP_OK) {
+        result = nvs_set_blob(handle, "credentials", &change.credentials, sizeof(change.credentials));
+        if (result == ESP_OK) result = nvs_commit(handle);
+        nvs_close(handle);
+    }
+    if (result == ESP_OK) {
+        change.queuedAt = xTaskGetTickCount();
+        xQueueOverwrite(uplinkChanges, &change);
+        xEventGroupSetBits(wifiEvents, WIFI_RECONFIGURE_BIT);
+    }
+    xSemaphoreGive(uplinkLock);
+    return result;
+#else
+    (void)ssid; (void)password; (void)username; (void)identity; (void)delayMs;
+    return ESP_ERR_INVALID_STATE;
+#endif
+}
+
+esp_err_t wifi_station_set_uplink(const char *ssid, const char *password,
+                                 const char *username, const char *identity) {
+    return setUplink(ssid, password, username, identity, 300);
+}
+
+esp_err_t wifi_station_set_uplink_remote(const char *ssid, const char *password,
+                                        const char *username, const char *identity) {
+    return setUplink(ssid, password, username, identity, 2500);
+}
 
 void wifi_station_initialize(void) {
     wifiEvents = xEventGroupCreate();
@@ -195,38 +351,14 @@ void wifi_station_initialize(void) {
              CONFIG_BEER_AP_SSID, CONFIG_BEER_AP_IP, BREW_HTTP_PORT, BREW_CHANNEL);
 
 #if CONFIG_BEER_WIFI_UPLINK_ENABLED
-    const size_t ssidLength = strlen(CONFIG_BEER_WIFI_SSID);
-    const size_t passwordLength = strlen(CONFIG_BEER_WIFI_PASSWORD);
-    if (!ssidLength) {
-        ESP_LOGW(TAG, "Sem SSID externo: somente rede local do iSpindel ativa");
-        return;
+    uplinkChanges = xQueueCreate(1, sizeof(UplinkChange));
+    uplinkLock = uplinkChanges ? xSemaphoreCreateMutex() : NULL;
+    if (!uplinkLock || xTaskCreate(wifiConnectTask, "wifi_connect", 4096, NULL, 2, NULL) != pdPASS) {
+        if (uplinkChanges) vQueueDelete(uplinkChanges);
+        if (uplinkLock) vSemaphoreDelete(uplinkLock);
+        uplinkChanges = NULL;
+        uplinkLock = NULL;
     }
-    if (!strcmp(CONFIG_BEER_WIFI_SSID, CONFIG_BEER_AP_SSID)) {
-        ESP_LOGE(TAG, "SSID externo deve ser diferente do SSID local");
-        return;
-    }
-    if (ssidLength > 32) {
-        ESP_LOGE(TAG, "SSID excede 32 bytes; mantendo modo local");
-        return;
-    }
-#if CONFIG_BEER_WIFI_ENTERPRISE
-    const size_t usernameLength = strlen(CONFIG_BEER_WIFI_USERNAME);
-    const size_t identityLength = strlen(CONFIG_BEER_WIFI_IDENTITY);
-    if (!usernameLength || usernameLength > 127 || identityLength > 127 || !passwordLength) {
-        ESP_LOGE(TAG, "Enterprise requer usuario (1-127 bytes), senha e identidade de ate 127 bytes");
-        return;
-    }
-    ESP_LOGI(TAG, "Wi-Fi: modo WPA2-Enterprise (usuario/senha)");
-#else
-    if (passwordLength > 64) {
-        ESP_LOGE(TAG, "SSID/senha excedem o limite do Wi-Fi; mantendo modo local");
-        return;
-    }
-    ESP_LOGI(TAG, "Wi-Fi: modo Personal (senha da rede)");
+    if (!uplinkChanges) ESP_LOGE(TAG, "Falha ao criar tarefa Wi-Fi; mantendo modo local");
 #endif
-    if (xTaskCreate(wifiConnectTask, "wifi_connect", 4096, NULL, 2, NULL) != pdPASS) {
-        ESP_LOGE(TAG, "Falha ao criar tarefa Wi-Fi; mantendo modo local");
-    }
-#endif
-
 }

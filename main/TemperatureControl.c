@@ -5,11 +5,13 @@
 
 #include <inttypes.h>
 #include <math.h>
+#include <stdatomic.h>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "nvs.h"
 
 static const char *TAG = "CONTROL";
 static const int OFF = RELAY_ACTIVE_LOW ? 1 : 0;
@@ -24,15 +26,65 @@ static const bool ENABLED_AT_BOOT = true;
 static const bool ENABLED_AT_BOOT = false;
 #endif
 
-static const TemperatureControlSettings settings = {
+static const TemperatureControlSettings limits = {
     .minimumC = CONFIG_BEER_CONTROL_MIN_CENTIC / 100.0f,
     .maximumC = CONFIG_BEER_CONTROL_MAX_CENTIC / 100.0f,
-    .heatingDifferentialC = CONFIG_BEER_CONTROL_HEATING_DIFF_CENTIC / 100.0f,
-    .coolingDifferentialC = CONFIG_BEER_CONTROL_COOLING_DIFF_CENTIC / 100.0f,
     .compressorOffUs = (int64_t)CONFIG_BEER_CONTROL_COMPRESSOR_OFF_SECONDS * 1000000,
     .compressorOnUs = (int64_t)CONFIG_BEER_CONTROL_COMPRESSOR_ON_SECONDS * 1000000,
     .changeoverUs = (int64_t)CONFIG_BEER_CONTROL_CHANGEOVER_SECONDS * 1000000,
 };
+static atomic_uint differentials =
+    ((unsigned)CONFIG_BEER_CONTROL_HEATING_DIFF_CENTIC << 16) |
+    CONFIG_BEER_CONTROL_COOLING_DIFF_CENTIC;
+
+static TemperatureControlSettings settingsFor(unsigned packed) {
+    TemperatureControlSettings settings = limits;
+    settings.heatingDifferentialC = (packed >> 16) / 100.0f;
+    settings.coolingDifferentialC = (packed & UINT16_MAX) / 100.0f;
+    return settings;
+}
+
+static bool hysteresisValid(unsigned packed) {
+    const unsigned heating = packed >> 16, cooling = packed & UINT16_MAX;
+    const TemperatureControlSettings candidate = settingsFor(packed);
+    return heating >= 10 && heating <= 500 && cooling >= 10 && cooling <= 500 &&
+        temperature_control_settings_valid(&candidate, CONFIG_BEER_CONTROL_TARGET_CENTIC / 100.0f);
+}
+
+void temperature_control_load_hysteresis(void) {
+    nvs_handle_t storage;
+    esp_err_t result = nvs_open("temp_control", NVS_READONLY, &storage);
+    if (result == ESP_OK) {
+        uint32_t packed;
+        result = nvs_get_u32(storage, "hysteresis", &packed);
+        nvs_close(storage);
+        if (result == ESP_OK) {
+            if (hysteresisValid(packed)) atomic_store(&differentials, packed);
+            else result = ESP_ERR_INVALID_ARG;
+        }
+    }
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND)
+        ESP_LOGW(TAG, "Falha ao carregar histerese salva: %s", esp_err_to_name(result));
+}
+
+esp_err_t temperature_control_set_hysteresis(uint16_t heating, uint16_t cooling) {
+    const unsigned packed = ((unsigned)heating << 16) | cooling;
+    if (!hysteresisValid(packed)) return ESP_ERR_INVALID_ARG;
+    const TemperatureControlSettings candidate = settingsFor(packed);
+    TemperatureControlStatus status;
+    if (!temperature_control_latest(&status)) return ESP_ERR_INVALID_STATE;
+    if (!temperature_control_settings_valid(&candidate, status.targetC)) return ESP_ERR_INVALID_ARG;
+    if (packed == atomic_load(&differentials)) return ESP_OK;
+
+    nvs_handle_t storage;
+    esp_err_t result = nvs_open("temp_control", NVS_READWRITE, &storage);
+    if (result != ESP_OK) return result;
+    result = nvs_set_u32(storage, "hysteresis", packed);
+    if (result == ESP_OK) result = nvs_commit(storage);
+    nvs_close(storage);
+    if (result == ESP_OK) atomic_store(&differentials, packed);
+    return result;
+}
 
 static esp_err_t allOff(void) {
     // Tenta ambos, mesmo se o primeiro GPIO retornar erro.
@@ -89,6 +141,7 @@ static void controlTask(void *context) {
     for (;;) {
         // Nao espera rede, RTC nem conversao do sensor.
         (void)xQueueReceive(commands, &command, 0);
+        const TemperatureControlSettings settings = settingsFor(atomic_load(&differentials));
         LocalTemperature sample = {0};
         const bool haveSample = local_temperature_latest(&sample);
         const int64_t nowUs = esp_timer_get_time();
@@ -162,7 +215,7 @@ esp_err_t temperature_control_initialize(void) {
     result = allOff();
     if (result != ESP_OK) return result;
     const float target = CONFIG_BEER_CONTROL_TARGET_CENTIC / 100.0f;
-    if (!temperature_control_settings_valid(&settings, target)) return ESP_ERR_INVALID_ARG;
+    if (!temperature_control_target_valid(target)) return ESP_ERR_INVALID_ARG;
 
     commands = xQueueCreate(1, sizeof(TemperatureControlCommand));
     statuses = xQueueCreate(1, sizeof(TemperatureControlStatus));
@@ -201,11 +254,12 @@ bool temperature_control_set_target(float targetC, bool enabled) {
 }
 
 bool temperature_control_target_valid(float targetC) {
+    const TemperatureControlSettings settings = settingsFor(atomic_load(&differentials));
     return temperature_control_settings_valid(&settings, targetC);
 }
 
 void temperature_control_get_settings(TemperatureControlSettings *current) {
-    if (current) *current = settings;
+    if (current) *current = settingsFor(atomic_load(&differentials));
 }
 
 bool temperature_control_latest(TemperatureControlStatus *status) {

@@ -2,7 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "WifiStation.c"
-        "UbidotsTelemetry.c"
+        "BrokerMqtt.c"
         "IspindelReceiver.c"
         "BrewJson.c"
         "LocalTemperature.c"

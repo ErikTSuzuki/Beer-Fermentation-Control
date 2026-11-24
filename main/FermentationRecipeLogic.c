@@ -47,6 +47,14 @@ static bool advance(const FermentationRecipe *recipe, FermentationRecipeProgress
     return true;
 }
 
+bool fermentation_recipe_skip(const FermentationRecipe *recipe, FermentationRecipeProgress *p,
+                              uint8_t expectedStep, int64_t nowUs) {
+    if (p->state != RECIPE_RUNNING || p->stepIndex != expectedStep ||
+        p->stepIndex >= recipe->stepCount || nowUs < p->lastTickUs) return false;
+    p->lastTickUs = nowUs;
+    return advance(recipe, p, RECIPE_REASON_SKIPPED, nowUs);
+}
+
 bool fermentation_recipe_tick(const FermentationRecipe *recipe,
     FermentationRecipeProgress *p, RecipeGravitySample sample,
     int64_t maximumSampleAgeUs, int64_t nowUs) {

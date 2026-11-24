@@ -6,6 +6,7 @@
 #include "RtcClock.h"
 #include "TemperatureControl.h"
 #include "FermentationRecipe.h"
+#include "WifiStation.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -61,11 +62,15 @@ static void displayTask(void *context) {
     Line remoteTemp = {.y = 140};
     Line gravity = {.y = 164};
     Line battery = {.y = 188};
-    Line tilt = {.y = 212};
+    Line tilt = {.y = 208};
+    Line wifi = {.y = 224};
     ESP_LOGI(TAG, "Monitor de sensores iniciado");
 
     for (;;) {
         char line[64];
+        const bool wifiConnected = wifi_station_is_connected();
+        showLine(&wifi, wifiConnected ? "WIFI: CONECTADO" : "WIFI: DESCONECTADO",
+                 wifiConnected ? 0x07E0 : RED);
         FermentationRecipeStatus recipeStatus;
         const bool haveRecipe = fermentation_recipe_latest(&recipeStatus);
         const int64_t recipeNowUs = esp_timer_get_time();

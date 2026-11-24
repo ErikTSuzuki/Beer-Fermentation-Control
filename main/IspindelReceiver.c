@@ -198,6 +198,7 @@ void ispindel_receiver_start(void) {
     config.server_port = BREW_HTTP_PORT;
     config.stack_size = 10240;
     config.max_open_sockets = 5; // Reserva um socket para DNS do portal e um para reconexao.
+    config.max_uri_handlers = 9;
     config.max_req_hdr_len = 2048; // Headers de navegadores e senha UTF-8 codificada.
     config.task_priority = 2; // Interface local nunca tem prioridade sobre o controle.
     config.recv_wait_timeout = 2;
