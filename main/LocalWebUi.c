@@ -153,8 +153,8 @@ static esp_err_t statusPage(httpd_req_t *request) {
         return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
     }
     cJSON_AddBoolToObject(root, "uplink_connected", wifi_station_is_connected());
-#if CONFIG_BEER_UBIDOTS_ENABLED
-    cJSON_AddBoolToObject(root, "cloud_configured", CONFIG_BEER_UBIDOTS_TOKEN[0] && CONFIG_BEER_WIFI_SSID[0]);
+#if CONFIG_BEER_LOCAL_MQTT
+    cJSON_AddBoolToObject(root, "cloud_configured", CONFIG_BEER_MQTT_URI[0] && CONFIG_BEER_MQTT_PASSWORD[0]);
 #else
     cJSON_AddBoolToObject(root, "cloud_configured", false);
 #endif
@@ -187,12 +187,16 @@ static esp_err_t statusPage(httpd_req_t *request) {
     cJSON_AddNumberToObject(run, "last_error", recipe.lastError);
     TemperatureControlSettings settings;
     temperature_control_get_settings(&settings);
-    cJSON_AddNumberToObject(caps, "target_min_c", settings.minimumC + settings.heatingDifferentialC);
-    cJSON_AddNumberToObject(caps, "target_max_c", settings.maximumC - settings.coolingDifferentialC);
+    cJSON_AddNumberToObject(controller, "heating_diff_c", round(settings.heatingDifferentialC * 100.0) / 100.0);
+    cJSON_AddNumberToObject(controller, "cooling_diff_c", round(settings.coolingDifferentialC * 100.0) / 100.0);
+    cJSON_AddNumberToObject(caps, "target_min_c", round((settings.minimumC + settings.heatingDifferentialC) * 100.0) / 100.0);
+    cJSON_AddNumberToObject(caps, "target_max_c", round((settings.maximumC - settings.coolingDifferentialC) * 100.0) / 100.0);
     cJSON_AddNumberToObject(caps, "max_steps", RECIPE_MAX_STEPS);
     cJSON_AddNumberToObject(caps, "max_json_bytes", RECIPE_JSON_MAX);
+    cJSON_AddBoolToObject(caps, "uplink_configurable", wifi_station_can_configure());
+    cJSON_AddBoolToObject(caps, "uplink_enterprise", wifi_station_supports_enterprise());
     if (cJSON_GetArraySize(root) != 6 || cJSON_GetArraySize(sensors) != 4 ||
-        cJSON_GetArraySize(controller) != 8 || cJSON_GetArraySize(run) != 14 || cJSON_GetArraySize(caps) != 4) {
+        cJSON_GetArraySize(controller) != 10 || cJSON_GetArraySize(run) != 14 || cJSON_GetArraySize(caps) != 6) {
         cJSON_Delete(root);
         return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
     }
@@ -209,36 +213,9 @@ static esp_err_t currentRecipe(httpd_req_t *request) {
         httpd_resp_set_type(request, "application/json");
         return httpd_resp_send(request, "null", HTTPD_RESP_USE_STRLEN);
     }
-    cJSON *root = cJSON_CreateObject();
-    cJSON *steps = root ? cJSON_AddArrayToObject(root, "steps") : NULL;
-    if (!steps) {
-        free(recipe); cJSON_Delete(root);
-        return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-    }
-    cJSON_AddNumberToObject(root, "version", 1);
-    cJSON_AddStringToObject(root, "name", recipe->name);
-    cJSON_AddStringToObject(root, "gravity_unit", recipe->gravityUnit == BREW_UNIT_SG ? "sg" : "plato");
-    cJSON_AddNumberToObject(root, "gravity_confirm_samples", recipe->confirmationSamples);
-    cJSON_AddStringToObject(root, "on_complete", "hold");
-    for (unsigned i = 0; i < recipe->stepCount; ++i) {
-        const FermentationStep *step = &recipe->steps[i];
-        cJSON *item = cJSON_CreateObject();
-        if (!item || !cJSON_AddItemToArray(steps, item)) {
-            cJSON_Delete(item); cJSON_Delete(root); free(recipe);
-            return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-        }
-        cJSON_AddStringToObject(item, "name", step->name);
-        cJSON_AddNumberToObject(item, "target_c", round(step->targetC * 1000000.0) / 1000000.0);
-        cJSON_AddNumberToObject(item, "max_days", (double)step->maximumUs / RECIPE_DAY_US);
-        numberOrNull(item, "gravity_limit", round(step->gravityLimit * 1000000.0) / 1000000.0, step->hasGravityLimit);
-        if (cJSON_GetArraySize(item) != 4) {
-            cJSON_Delete(root); free(recipe);
-            return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
-        }
-    }
+    cJSON *root = fermentation_recipe_json(recipe);
     free(recipe);
-    if (cJSON_GetArraySize(root) != 6) {
-        cJSON_Delete(root);
+    if (!root) {
         return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
     }
     return sendObject(request, root);
@@ -258,28 +235,40 @@ static esp_err_t commandResult(httpd_req_t *request, esp_err_t result) {
     return httpd_resp_send(request, "{\"accepted\":true}", HTTPD_RESP_USE_STRLEN);
 }
 
-static esp_err_t startRecipe(httpd_req_t *request) {
-    if (!mutationAllowed(request)) return ESP_FAIL;
+static bool isJsonRequest(httpd_req_t *request) {
     char contentType[64] = {0};
-    if (httpd_req_get_hdr_value_str(request, "Content-Type", contentType, sizeof(contentType)) != ESP_OK ||
-        strncasecmp(contentType, "application/json", 16) ||
-        (contentType[16] && contentType[16] != ';' && contentType[16] != ' '))
-        return message(request, "415 Unsupported Media Type", "{\"error\":\"json_required\"}");
-    if (!request->content_len || request->content_len > RECIPE_JSON_MAX)
-        return message(request, "413 Content Too Large", "{\"error\":\"recipe_too_large\"}");
-    char *body = malloc(request->content_len);
-    if (!body) return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
+    if (httpd_req_get_hdr_value_str(request, "Content-Type", contentType, sizeof(contentType)) == ESP_OK &&
+        !strncasecmp(contentType, "application/json", 16) &&
+        (!contentType[16] || contentType[16] == ';' || contentType[16] == ' ')) return true;
+    message(request, "415 Unsupported Media Type", "{\"error\":\"json_required\"}");
+    return false;
+}
+
+static bool readBody(httpd_req_t *request, char *body) {
     size_t received = 0;
     const int64_t began = esp_timer_get_time();
     while (received < request->content_len) {
         const int bytes = httpd_req_recv(request, body + received, request->content_len - received);
         if (bytes <= 0 || esp_timer_get_time() - began > INT64_C(3000000)) {
-            free(body);
-            return message(request, "408 Request Timeout", "{\"error\":\"incomplete_body\"}");
+            message(request, "408 Request Timeout", "{\"error\":\"incomplete_body\"}");
+            return false;
         }
         received += (size_t)bytes;
     }
-    const esp_err_t result = fermentation_recipe_submit_json(body, received);
+    return true;
+}
+
+static esp_err_t startRecipe(httpd_req_t *request) {
+    if (!mutationAllowed(request) || !isJsonRequest(request)) return ESP_FAIL;
+    if (!request->content_len || request->content_len > RECIPE_JSON_MAX)
+        return message(request, "413 Content Too Large", "{\"error\":\"recipe_too_large\"}");
+    char *body = malloc(request->content_len);
+    if (!body) return message(request, "503 Service Unavailable", "{\"error\":\"no_memory\"}");
+    if (!readBody(request, body)) {
+        free(body);
+        return ESP_FAIL;
+    }
+    const esp_err_t result = fermentation_recipe_submit_json(body, request->content_len);
     free(body);
     return commandResult(request, result);
 }
@@ -289,6 +278,90 @@ static esp_err_t cancelRecipe(httpd_req_t *request) {
     if (request->content_len)
         return message(request, "400 Bad Request", "{\"error\":\"empty_body_required\"}");
     return commandResult(request, fermentation_recipe_cancel());
+}
+
+static cJSON *readSettings(httpd_req_t *request, int fields) {
+    if (!mutationAllowed(request) || !isJsonRequest(request)) return NULL;
+
+    char body[3072];
+    if (!request->content_len || request->content_len >= sizeof(body)) {
+        message(request, "413 Content Too Large", "{\"error\":\"invalid_settings\"}");
+        return NULL;
+    }
+    if (!readBody(request, body)) return NULL;
+    const size_t length = request->content_len;
+    body[length] = 0;
+
+    // Configuracoes sao objetos planos. Rejeita NUL, inclusive em strings JSON.
+    unsigned objects = 0;
+    bool quoted = false, valid = !memchr(body, 0, length);
+    for (size_t i = 0; valid && i < length; ++i) {
+        if (quoted && body[i] == '\\') {
+            if (!strncmp(body + i + 1, "u0000", 5)) valid = false;
+            ++i;
+        } else if (body[i] == '"') quoted = !quoted;
+        else if (!quoted && (body[i] == '[' || (body[i] == '{' && ++objects > 1))) valid = false;
+    }
+    cJSON *settings = valid ? cJSON_ParseWithLengthOpts(body, length + 1, NULL, true) : NULL;
+    if (!cJSON_IsObject(settings) || cJSON_GetArraySize(settings) != fields) {
+        cJSON_Delete(settings);
+        message(request, "400 Bad Request", "{\"error\":\"invalid_settings\"}");
+        return NULL;
+    }
+    return settings;
+}
+
+static bool getInteger(const cJSON *settings, const char *key, int minimum, int maximum, int *value) {
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(settings, key);
+    if (!cJSON_IsNumber(item) || !(item->valuedouble >= minimum && item->valuedouble <= maximum) ||
+        floor(item->valuedouble) != item->valuedouble) return false;
+    *value = (int)item->valuedouble;
+    return true;
+}
+
+static esp_err_t settingsResult(httpd_req_t *request, esp_err_t result, const char *invalid) {
+    if (result == ESP_ERR_INVALID_ARG) return message(request, "400 Bad Request", invalid);
+    if (result != ESP_OK) return message(request, "503 Service Unavailable", "{\"error\":\"settings_unavailable\"}");
+    responseHeaders(request);
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_send(request, "{\"saved\":true}", HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t saveUplink(httpd_req_t *request) {
+    cJSON *settings = readSettings(request, 4);
+    if (!settings) return ESP_FAIL;
+    const char *ssid = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(settings, "ssid"));
+    const char *password = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(settings, "password"));
+    const char *username = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(settings, "username"));
+    const char *identity = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(settings, "identity"));
+    const esp_err_t result = ssid && password && username && identity
+        ? wifi_station_set_uplink(ssid, password, username, identity) : ESP_ERR_INVALID_ARG;
+    cJSON_Delete(settings);
+    return settingsResult(request, result, "{\"error\":\"invalid_uplink\"}");
+}
+
+static esp_err_t saveHysteresis(httpd_req_t *request) {
+    cJSON *settings = readSettings(request, 2);
+    if (!settings) return ESP_FAIL;
+    int heating, cooling;
+    const bool valid = getInteger(settings, "heating_centic", 10, 500, &heating) &&
+        getInteger(settings, "cooling_centic", 10, 500, &cooling);
+    cJSON_Delete(settings);
+    const esp_err_t result = valid ? fermentation_recipe_set_hysteresis(heating, cooling) : ESP_ERR_INVALID_ARG;
+    return settingsResult(request, result, "{\"error\":\"invalid_hysteresis\"}");
+}
+
+static esp_err_t skipRecipeStep(httpd_req_t *request) {
+    cJSON *settings = readSettings(request, 1);
+    if (!settings) return ESP_FAIL;
+    int step;
+    const bool valid = getInteger(settings, "step", 1, RECIPE_MAX_STEPS, &step);
+    cJSON_Delete(settings);
+    if (!valid) return message(request, "400 Bad Request", "{\"error\":\"invalid_settings\"}");
+    const esp_err_t result = fermentation_recipe_skip_step(step - 1);
+    if (result == ESP_ERR_INVALID_STATE)
+        return message(request, "409 Conflict", "{\"error\":\"step_changed\"}");
+    return commandResult(request, result);
 }
 
 static esp_err_t indexPage(httpd_req_t *request) {
@@ -313,6 +386,9 @@ esp_err_t local_web_ui_register(httpd_handle_t server, bool (*localClient)(httpd
         {.uri = "/api/recipe", .method = HTTP_GET, .handler = currentRecipe},
         {.uri = "/api/recipe", .method = HTTP_POST, .handler = startRecipe},
         {.uri = "/api/recipe/cancel", .method = HTTP_POST, .handler = cancelRecipe},
+        {.uri = "/api/recipe/skip", .method = HTTP_POST, .handler = skipRecipeStep},
+        {.uri = "/api/settings/wifi", .method = HTTP_POST, .handler = saveUplink},
+        {.uri = "/api/settings/hysteresis", .method = HTTP_POST, .handler = saveHysteresis},
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); ++i) {
         const esp_err_t result = httpd_register_uri_handler(server, &routes[i]);

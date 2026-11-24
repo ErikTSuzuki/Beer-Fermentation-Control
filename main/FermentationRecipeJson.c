@@ -104,3 +104,31 @@ bool fermentation_recipe_parse(const char *json, size_t length, FermentationReci
     *recipe = result;
     return true;
 }
+
+cJSON *fermentation_recipe_json(const FermentationRecipe *recipe) {
+    cJSON *root = cJSON_CreateObject();
+    cJSON *steps = root ? cJSON_AddArrayToObject(root, "steps") : NULL;
+    if (!steps || !cJSON_AddNumberToObject(root, "version", 1) ||
+        !cJSON_AddStringToObject(root, "name", recipe->name) ||
+        !cJSON_AddStringToObject(root, "gravity_unit", recipe->gravityUnit == BREW_UNIT_SG ? "sg" : "plato") ||
+        !cJSON_AddNumberToObject(root, "gravity_confirm_samples", recipe->confirmationSamples) ||
+        !cJSON_AddStringToObject(root, "on_complete", "hold")) goto failure;
+    for (unsigned i = 0; i < recipe->stepCount; ++i) {
+        const FermentationStep *step = &recipe->steps[i];
+        cJSON *item = cJSON_CreateObject();
+        if (!item || !cJSON_AddItemToArray(steps, item)) {
+            cJSON_Delete(item);
+            goto failure;
+        }
+        if (!cJSON_AddStringToObject(item, "name", step->name) ||
+            !cJSON_AddNumberToObject(item, "target_c", round(step->targetC * 1000000.0) / 1000000.0) ||
+            !cJSON_AddNumberToObject(item, "max_days", (double)step->maximumUs / RECIPE_DAY_US) ||
+            !(step->hasGravityLimit
+                ? cJSON_AddNumberToObject(item, "gravity_limit", round(step->gravityLimit * 1000000.0) / 1000000.0)
+                : cJSON_AddNullToObject(item, "gravity_limit"))) goto failure;
+    }
+    return root;
+failure:
+    cJSON_Delete(root);
+    return NULL;
+}

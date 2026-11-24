@@ -3,7 +3,7 @@
 Monitor e controlador de fermentação com **ESP32, ESP-IDF e FreeRTOS**. Mede a
 temperatura com um DS18B20 local, recebe a telemetria de um iSpindel e comanda
 aquecimento e refrigeração por histerese. O operador configura receitas pelo
-navegador, acompanha os dados na tela e pode enviá-los ao Ubidots.
+navegador, acompanha os dados na tela e pode enviá-los à VM.
 
 ## Funcionamento
 
@@ -14,7 +14,7 @@ iSpindel ── Wi-Fi/HTTP ──> ESP32 + receitas      interface / potência e
                               │
                  ┌────────────┼─────────────┐
               TFT + RTC   navegador     Wi-Fi externo
-                          no AP local        └── MQTT → Ubidots
+                          no AP local        └── MQTT → VM
 ```
 
 - **Controle independente da internet:** usa o DS18B20 local como realimentação.
@@ -105,11 +105,32 @@ Configure em `menuconfig`:
 | Beer Monitor - Temperature control | Alvo, histerese, limites e tempos de proteção |
 | Beer Monitor - Local recipe interface | Senha da página local e portal cativo |
 | Beer Monitor - Fermentation recipe | Opção de iniciar a receita de exemplo; desabilitada por padrão |
-| Beer Monitor - Ubidots STEM | Token, identificação do dispositivo e intervalo de envio |
+| Beer Monitor - MQTT broker | URI da VM, identificação e senha MQTT do dispositivo, intervalo da telemetria |
 
-Troque a senha de exemplo do AP. Não publique senhas, tokens ou um `sdkconfig`
-com credenciais. A publicação atual usa MQTT/TCP sem TLS, conforme
-[UbidotsTelemetry.c](main/UbidotsTelemetry.c).
+Troque a senha de exemplo do AP. Mantenha as credenciais no `sdkconfig` local.
+Na VM, use a URI MQTT segura `wss://ENDERECO_DA_VM/mqtt` e as credenciais
+MQTT do próprio dispositivo. O Wi-Fi externo pode ser configurado pelo portal
+local, inclusive após a gravação do firmware.
+
+### Comunicação com a VM
+
+O firmware mantém os tópicos `/telemetria`, `/comandos/receita` e
+`/estado/receita` sob `cervejaria/v1/fermentadores/<dispositivo>`.
+Os comandos do painel usam os campos `id`, `session`, `lease`, `revision`
+e `action`. O firmware informa o resultado no tópico de estado com o mesmo
+`id`. Para as novas ações, inclua os campos abaixo no comando MQTT.
+
+| Ação | Campos adicionais |
+|---|---|
+| `skip` | `step` com o número da etapa atual, começando em 1 |
+| `hysteresis` | `heating_centic` e `cooling_centic` de 10 a 500, em centésimos de °C |
+| `wifi` | `ssid`, `password`, `username` e `identity` como texto. Use strings vazias para os campos não utilizados. |
+
+O estado periódico inclui a etapa, os dois valores de histerese, o SSID
+conectado e a disponibilidade da configuração Wi-Fi. O comando Wi-Fi exige
+MQTT sobre TLS e a confirmação informa que as credenciais foram salvas.
+O ESP32 tenta se reconectar em seguida. Caso a rede nova não dê acesso à
+VM, ajuste a rede novamente pelo portal local.
 
 ## Usar a interface local
 

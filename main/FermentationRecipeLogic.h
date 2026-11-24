@@ -29,7 +29,7 @@ typedef struct {
 
 typedef enum { RECIPE_IDLE, RECIPE_RUNNING, RECIPE_COMPLETED, RECIPE_FAULT } FermentationRecipeState;
 typedef enum { RECIPE_REASON_NONE, RECIPE_REASON_STARTED, RECIPE_REASON_GRAVITY,
-               RECIPE_REASON_TIME, RECIPE_REASON_CANCELLED } FermentationRecipeReason;
+               RECIPE_REASON_TIME, RECIPE_REASON_CANCELLED, RECIPE_REASON_SKIPPED } FermentationRecipeReason;
 
 typedef struct {
     bool valid;
@@ -54,7 +54,11 @@ typedef struct {
 bool fermentation_recipe_valid(const FermentationRecipe *recipe);
 bool fermentation_recipe_gravity_valid(uint8_t unit, float value);
 bool fermentation_recipe_parse(const char *json, size_t length, FermentationRecipe *recipe);
+struct cJSON;
+struct cJSON *fermentation_recipe_json(const FermentationRecipe *recipe);
 void fermentation_recipe_begin(FermentationRecipeProgress *progress, int64_t nowUs);
+bool fermentation_recipe_skip(const FermentationRecipe *recipe, FermentationRecipeProgress *progress,
+                              uint8_t expectedStep, int64_t nowUs);
 // true quando muda de etapa ou conclui. Nunca acessa GPIO, rede, RTC ou flash.
 bool fermentation_recipe_tick(const FermentationRecipe *recipe,
     FermentationRecipeProgress *progress, RecipeGravitySample sample,

@@ -19,6 +19,9 @@ typedef struct {
 // Chamar uma vez em app_main, antes de qualquer tarefa/rede: inicializa GPIOs
 // desligados e as caixas postais. Nao inicia o controle ainda.
 esp_err_t temperature_control_initialize(void);
+// Apos nvs_flash_init e antes de restaurar a receita.
+void temperature_control_load_hysteresis(void);
+esp_err_t temperature_control_set_hysteresis(uint16_t heating, uint16_t cooling);
 // Chamar apos criar a fila e iniciar a tarefa do DS18B20 local.
 esp_err_t temperature_control_start(void);
 // Interface para o futuro executor de receitas. Copia nao bloqueante: o comando
@@ -27,7 +30,7 @@ esp_err_t temperature_control_start(void);
 bool temperature_control_set_target(float targetC, bool enabled);
 // Valida sem enfileirar nem alterar o alvo atual (usado antes de aceitar receitas).
 bool temperature_control_target_valid(float targetC);
-// Limites imutaveis configurados no firmware, para validacao do editor local.
+// Copia dos limites do firmware e da histerese em uso.
 void temperature_control_get_settings(TemperatureControlSettings *current);
 bool temperature_control_latest(TemperatureControlStatus *status);
 const char *temperature_control_state_name(TemperatureControlState state);
