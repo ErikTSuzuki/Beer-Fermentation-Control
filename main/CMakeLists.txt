@@ -8,6 +8,7 @@ idf_component_register(
         "LocalTemperature.c"
         "TelemetryLogger.c"
         "Mar2406Display.c"
+        "Mar2406Touch.c"
         "DisplayTest.c"
         "RtcClock.c"
         "TemperatureControl.c"
@@ -20,7 +21,7 @@ idf_component_register(
         "CaptiveDns.c"
     INCLUDE_DIRS "."
     REQUIRES esp_wifi esp_event esp_netif nvs_flash onewire_bus ds18b20 esp_driver_gpio esp_driver_i2c esp_rom
-    PRIV_REQUIRES mqtt wpa_supplicant lwip esp_http_server cjson esp_timer
+    PRIV_REQUIRES mqtt wpa_supplicant lwip esp_http_server cjson esp_timer esp_adc
     EMBED_TXTFILES "../recipes/exemplo.json" "web/index.html"
 )
 

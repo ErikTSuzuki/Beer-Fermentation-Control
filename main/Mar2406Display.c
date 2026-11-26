@@ -5,17 +5,20 @@
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "soc/gpio_struct.h"
 
 static bool ready = false;
+static uint32_t dataMask;
+static uint32_t dataLevels[256];
 
-// Escrita conservadora para teste; nao desabilita interrupcoes do ESP-NOW.
 static void writeByte(uint8_t value) {
-    gpio_set_level(MAR2406_WR, 0);
-    for (int bit = 0; bit < 8; ++bit) {
-        gpio_set_level(MAR2406_DATA[bit], (value >> bit) & 1);
-    }
+    const uint32_t writeMask = UINT32_C(1) << MAR2406_WR;
+    const uint32_t levels = dataLevels[value];
+    // Atualiza os oito bits juntos e preserva os demais GPIOs do ESP32.
+    GPIO.out_w1tc = writeMask | (dataMask & ~levels);
+    GPIO.out_w1ts = levels;
     esp_rom_delay_us(1);
-    gpio_set_level(MAR2406_WR, 1);
+    GPIO.out_w1ts = writeMask;
     esp_rom_delay_us(1);
 }
 
@@ -37,48 +40,10 @@ static void window(int x, int y, int width, int height) {
                    (uint8_t)(right >> 8), (uint8_t)(right)}, 4);
     command(0x2B, (const uint8_t[]){(uint8_t)(y >> 8), (uint8_t)(y),
                    (uint8_t)(bottom >> 8), (uint8_t)(bottom)}, 4);
-    command(0x2C, NULL, 0);
     gpio_set_level(MAR2406_CS, 0);
-}
-
-static void pixel(uint16_t color) {
-    writeByte(color >> 8);
-    writeByte(color & 0xFF);
-}
-
-// Fonte local 5x7: numeros, letras maiusculas e pontuacao da demonstracao.
-static const uint8_t DIGITS[10][5] = {
-    {0x3E,0x51,0x49,0x45,0x3E}, {0,0x42,0x7F,0x40,0},
-    {0x42,0x61,0x51,0x49,0x46}, {0x21,0x41,0x45,0x4B,0x31},
-    {0x18,0x14,0x12,0x7F,0x10}, {0x27,0x45,0x45,0x45,0x39},
-    {0x3C,0x4A,0x49,0x49,0x30}, {0x01,0x71,0x09,0x05,0x03},
-    {0x36,0x49,0x49,0x49,0x36}, {0x06,0x49,0x49,0x29,0x1E}
-};
-static const uint8_t LETTERS[26][5] = {
-    {0x7E,0x11,0x11,0x11,0x7E}, {0x7F,0x49,0x49,0x49,0x36},
-    {0x3E,0x41,0x41,0x41,0x22}, {0x7F,0x41,0x41,0x22,0x1C},
-    {0x7F,0x49,0x49,0x49,0x41}, {0x7F,0x09,0x09,0x09,0x01},
-    {0x3E,0x41,0x49,0x49,0x7A}, {0x7F,0x08,0x08,0x08,0x7F},
-    {0,0x41,0x7F,0x41,0}, {0x20,0x40,0x41,0x3F,0x01},
-    {0x7F,0x08,0x14,0x22,0x41}, {0x7F,0x40,0x40,0x40,0x40},
-    {0x7F,0x02,0x0C,0x02,0x7F}, {0x7F,0x04,0x08,0x10,0x7F},
-    {0x3E,0x41,0x41,0x41,0x3E}, {0x7F,0x09,0x09,0x09,0x06},
-    {0x3E,0x41,0x51,0x21,0x5E}, {0x7F,0x09,0x19,0x29,0x46},
-    {0x46,0x49,0x49,0x49,0x31}, {0x01,0x01,0x7F,0x01,0x01},
-    {0x3F,0x40,0x40,0x40,0x3F}, {0x1F,0x20,0x40,0x20,0x1F},
-    {0x3F,0x40,0x38,0x40,0x3F}, {0x63,0x14,0x08,0x14,0x63},
-    {0x07,0x08,0x70,0x08,0x07}, {0x61,0x51,0x49,0x45,0x43}
-};
-
-static uint8_t column(char c, int col) {
-    if (col >= 5) return 0;
-    if (c >= '0' && c <= '9') return DIGITS[c - '0'][col];
-    if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
-    if (c >= 'A' && c <= 'Z') return LETTERS[c - 'A'][col];
-    if (c == '.') return col == 2 ? 0x60 : 0;
-    if (c == ':') return col == 2 ? 0x36 : 0;
-    if (c == '-') return 0x08;
-    return 0;
+    gpio_set_level(MAR2406_RS, 0);
+    writeByte(0x2C);
+    gpio_set_level(MAR2406_RS, 1);
 }
 
 esp_err_t mar2406_display_initialize(void) {
@@ -92,6 +57,14 @@ esp_err_t mar2406_display_initialize(void) {
             return ESP_ERR_INVALID_ARG;
         }
         mask |= 1ULL << pin;
+    }
+    for (unsigned bit = 0; bit < 8; ++bit) {
+        if (MAR2406_DATA[bit] >= 32) return ESP_ERR_INVALID_ARG;
+        const uint32_t pinMask = UINT32_C(1) << MAR2406_DATA[bit];
+        dataMask |= pinMask;
+        for (unsigned value = 0; value < 256; ++value) {
+            if (value & (1u << bit)) dataLevels[value] |= pinMask;
+        }
     }
     gpio_config_t config = {0};
     config.pin_bit_mask = mask;
@@ -121,36 +94,25 @@ esp_err_t mar2406_display_initialize(void) {
     vTaskDelay(pdMS_TO_TICKS(150));
     command(0x29, NULL, 0); // Display on.
     vTaskDelay(pdMS_TO_TICKS(20));
+    GPIO.out_w1ts = dataMask;
     ready = true;
     return ESP_OK;
 }
 
-void mar2406_display_fill(uint16_t color) {
+void mar2406_display_draw(int x, int y, int width, int height,
+                          const uint8_t *pixels, size_t stride) {
     if (!ready) return;
-    // Libera CPU a cada linha para nao monopolizar a tarefa idle.
-    for (int y = 0; y < MAR2406_HEIGHT; ++y) {
-        window(0, y, MAR2406_WIDTH, 1);
-        for (int x = 0; x < MAR2406_WIDTH; ++x) pixel(color);
-        gpio_set_level(MAR2406_CS, 1);
-        vTaskDelay(1);
-    }
-}
 
-void mar2406_display_text(int x, int y, const char *value, uint16_t color,
-          uint16_t background, int scale) {
-    if (!ready || !value || scale < 1 || scale > 4 || x < 0 || y < 0 ||
-        y > MAR2406_HEIGHT - 8 * scale) return;
-    while (*value && x <= MAR2406_WIDTH - 6 * scale) {
-        window(x, y, 6 * scale, 8 * scale);
-        for (int row = 0; row < 8 * scale; ++row) {
-            for (int col = 0; col < 6 * scale; ++col) {
-                const bool set = column(*value, col / scale) & (1 << (row / scale));
-                pixel(set ? color : background);
-            }
+    window(x, y, width, height);
+    for (int row = 0; row < height; ++row) {
+        const uint8_t *pixel = pixels + row * stride;
+        for (int col = 0; col < width; ++col, pixel += 2) {
+            // O ILI9341 recebe primeiro o byte mais significativo do RGB565.
+            writeByte(pixel[1]);
+            writeByte(pixel[0]);
         }
-        gpio_set_level(MAR2406_CS, 1);
-        ++value;
-        x += 6 * scale;
-        vTaskDelay(1);
     }
+    gpio_set_level(MAR2406_CS, 1);
+    // Em repouso, coloca as linhas do touch no mesmo nivel.
+    GPIO.out_w1ts = dataMask;
 }
